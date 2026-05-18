@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Viaje GPS",
+    "slug": "viaje-gps-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "La app necesita tu ubicacion para compartir tu posicion durante el viaje.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "La app puede usar tu ubicacion para mantener actualizado al coordinador del viaje."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b3a47"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ],
+      "package": "com.viajegps.mobile"
+    },
+    "plugins": [
+      "expo-location"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "users": [
+    {
+      "id": "usr_lucia",
+      "name": "Lucia Fernandez",
+      "phone": "+54 388 455 1001",
+      "role": "coordinator"
+    },
+    {
+      "id": "usr_martin",
+      "name": "Martin Quiroga",
+      "phone": "+54 388 455 1002",
+      "role": "driver"
+    },
+    {
+      "id": "usr_camila",
+      "name": "Camila Ruiz",
+      "phone": "+54 388 455 1003",
+      "role": "traveler"
+    },
+    {
+      "id": "usr_bruno",
+      "name": "Bruno Salas",
+      "phone": "+54 388 455 1004",
+      "role": "support"
+    }
+  ],
+  "trips": [
+    {
+      "id": "trip_jujuy_001",
+      "name": "Viaje Jujuy Norte",
+      "code": "JUJUY-2026",
+      "status": "active",
+      "startsAt": "2026-05-18T17:30:00.000Z",
+      "origin": "San Salvador de Jujuy",
+      "destination": "Humahuaca",
+      "checkpoint": "Termas de Reyes"
+    }
+  ],
+  "tripMembers": [
+    {
+      "id": "tm_1",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "memberRole": "coordinator",
+      "joinedAt": "2026-05-18T17:15:00.000Z"
+    },
+    {
+      "id": "tm_2",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_martin",
+      "memberRole": "driver",
+      "joinedAt": "2026-05-18T17:15:00.000Z"
+    },
+    {
+      "id": "tm_3",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_camila",
+      "memberRole": "traveler",
+      "joinedAt": "2026-05-18T17:18:00.000Z"
+    },
+    {
+      "id": "tm_4",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_bruno",
+      "memberRole": "support",
+      "joinedAt": "2026-05-18T17:20:00.000Z"
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc_1",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.1785,
+      "longitude": -65.3126,
+      "accuracy": 6,
+      "speed": 45,
+      "batteryLevel": 82,
+      "signalStrength": "high",
+      "recordedAt": "2026-05-18T18:07:48.000Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_2",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_martin",
+      "latitude": -24.121,
+      "longitude": -65.427,
+      "accuracy": 9,
+      "speed": 0,
+      "batteryLevel": 65,
+      "signalStrength": "medium",
+      "recordedAt": "2026-05-18T18:08:04.000Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_3",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_camila",
+      "latitude": -24.045,
+      "longitude": -65.3921,
+      "accuracy": 5,
+      "speed": 38,
+      "batteryLevel": 91,
+      "signalStrength": "high",
+      "recordedAt": "2026-05-18T18:08:10.000Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_4",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_bruno",
+      "latitude": -24.0902,
+      "longitude": -65.4782,
+      "accuracy": 18,
+      "speed": 12,
+      "batteryLevel": 48,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T18:07:32.000Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_isluq9mh",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:07:12.157Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_xzot68i3",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:08:16.396Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_hsghnfeb",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:19:04.327Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_cqmhqrqd",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:19:35.553Z",
+      "source": "mobile"
+    }
+  ],
+  "sessions": [
+    {
+      "token": "sess_xn6zk38a",
+      "userId": "usr_lucia",
+      "tripId": "trip_jujuy_001",
+      "createdAt": "2026-05-18T23:18:53.254Z"
+    }
+  ]
+}
