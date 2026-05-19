@@ -171,6 +171,45 @@
       "signalStrength": "low",
       "recordedAt": "2026-05-18T23:19:35.553Z",
       "source": "mobile"
+    },
+    {
+      "id": "loc_met22upy",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:21:45.267Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_3lin1wmi",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-18T23:54:30.659Z",
+      "source": "mobile"
+    },
+    {
+      "id": "loc_ro6lmoob",
+      "tripId": "trip_jujuy_001",
+      "userId": "usr_lucia",
+      "latitude": -24.2268041,
+      "longitude": -65.2377169,
+      "accuracy": 100,
+      "speed": 0,
+      "batteryLevel": 100,
+      "signalStrength": "low",
+      "recordedAt": "2026-05-19T00:03:53.004Z",
+      "source": "mobile"
     }
   ],
   "sessions": [
