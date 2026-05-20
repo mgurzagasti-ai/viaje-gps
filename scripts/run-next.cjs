@@ -7,6 +7,10 @@ const projectRoot = path.resolve(__dirname, "..");
 const pnpmStore = path.join(projectRoot, "node_modules", ".pnpm");
 
 function findPackageDir(prefix) {
+  if (!fs.existsSync(pnpmStore)) {
+    return path.join(projectRoot, "node_modules");
+  }
+
   const entries = fs.readdirSync(pnpmStore, { withFileTypes: true });
   const match = entries.find((entry) => entry.isDirectory() && entry.name.startsWith(prefix));
 
