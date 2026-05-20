@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import MapView, { Circle, Marker, Polyline } from "react-native-maps";
+import { WebView } from "react-native-webview";
 import { DashboardResponse } from "./types";
 
 type TripGroupMapProps = {
@@ -11,6 +12,21 @@ type TripGroupMapProps = {
 type LocatedMember = DashboardResponse["members"][number] & {
   latestLocation: NonNullable<DashboardResponse["members"][number]["latestLocation"]>;
 };
+
+function compareNames(left: string, right: string) {
+  return left
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .localeCompare(
+      right
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, ""),
+    );
+}
 
 function statusColor(status: DashboardResponse["members"][number]["connectionStatus"]) {
   if (status === "online") {
@@ -26,6 +42,147 @@ function statusColor(status: DashboardResponse["members"][number]["connectionSta
 
 function markerTitle(member: DashboardResponse["members"][number], currentUserId: string) {
   return member.userId === currentUserId ? "Vos" : member.name;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildAndroidMapHtml(
+  members: Array<{
+    name: string;
+    role: string;
+    connectionStatus: DashboardResponse["members"][number]["connectionStatus"];
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    batteryLevel: number;
+    isCurrentUser: boolean;
+  }>,
+) {
+  const serializedMembers = JSON.stringify(members);
+
+  return `<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+    <style>
+      html, body, #map {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #dce8e8;
+        font-family: Arial, sans-serif;
+      }
+
+      .leaflet-container {
+        background: #dce8e8;
+      }
+
+      .leaflet-control-attribution {
+        font-size: 10px;
+      }
+
+      .popup {
+        display: grid;
+        gap: 4px;
+        min-width: 140px;
+      }
+
+      .popup strong {
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+      const members = ${serializedMembers};
+      const fallbackCenter = [-24.1858, -65.2995];
+
+      function colorForStatus(status) {
+        if (status === "online") return "#1f9d67";
+        if (status === "delayed") return "#d58a18";
+        return "#cf5b5b";
+      }
+
+      function markerRadius(member) {
+        return member.isCurrentUser ? 10 : 8;
+      }
+
+      const map = L.map("map", {
+        zoomControl: false,
+        attributionControl: true,
+      }).setView(fallbackCenter, 10);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      const points = [];
+
+      members.forEach((member) => {
+        const coords = [member.latitude, member.longitude];
+        points.push(coords);
+
+        const color = colorForStatus(member.connectionStatus);
+
+        L.circle(coords, {
+          radius: Math.max(member.accuracy, 6),
+          color: color,
+          weight: 1,
+          fillColor: color,
+          fillOpacity: 0.12,
+        }).addTo(map);
+        const marker = L.circleMarker(coords, {
+          radius: markerRadius(member),
+          color: "#ffffff",
+          weight: 2,
+          fillColor: member.isCurrentUser ? "#e48649" : color,
+          fillOpacity: 1,
+        }).addTo(map);
+
+        marker.bindPopup(
+          '<div class="popup">' +
+            "<strong>" + member.name + "</strong>" +
+            "<span>" + member.role + "</span>" +
+            "<span>Estado: " + member.connectionStatus + "</span>" +
+            "<span>Bateria: " + member.batteryLevel + "%</span>" +
+            "</div>"
+        );
+      });
+
+      if (points.length > 1) {
+        L.polyline(points, {
+          color: "#0b6b78",
+          weight: 4,
+          opacity: 0.85,
+        }).addTo(map);
+
+        map.fitBounds(points, { padding: [28, 28] });
+      } else if (points.length === 1) {
+        map.setView(points[0], 12);
+      }
+    </script>
+  </body>
+</html>`;
 }
 
 export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
@@ -49,7 +206,7 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
           return 1;
         }
 
-        return left.name.localeCompare(right.name, "es-AR");
+        return compareNames(left.name, right.name);
       }),
     [locatedMembers],
   );
@@ -104,6 +261,50 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
   }
 
   const driverCount = sortedMembers.filter((member) => member.role === "driver").length;
+
+  if (Platform.OS === "android") {
+    const androidMapHtml = buildAndroidMapHtml(
+      sortedMembers.map((member) => ({
+        name: escapeHtml(markerTitle(member, currentUserId)),
+        role: escapeHtml(member.role),
+        connectionStatus: member.connectionStatus,
+        latitude: member.latestLocation.latitude,
+        longitude: member.latestLocation.longitude,
+        accuracy: member.latestLocation.accuracy,
+        batteryLevel: member.latestLocation.batteryLevel,
+        isCurrentUser: member.userId === currentUserId,
+      })),
+    );
+
+    return (
+      <View style={styles.wrapper}>
+        <View style={styles.mapFrame}>
+          <WebView
+            androidLayerType="hardware"
+            domStorageEnabled
+            javaScriptEnabled
+            originWhitelist={["*"]}
+            scrollEnabled={false}
+            setSupportMultipleWindows={false}
+            source={{ html: androidMapHtml }}
+            style={StyleSheet.absoluteFill}
+          />
+
+          <View style={styles.topBadgeRow}>
+            <Text style={styles.topBadge}>Mapa compartido del convoy</Text>
+            <Text style={styles.topBadge}>{driverCount} conductores visibles</Text>
+          </View>
+        </View>
+
+        <View style={styles.legendRow}>
+          <Text style={styles.legendText}>Naranja: tu equipo</Text>
+          <Text style={styles.legendText}>Verde: online</Text>
+          <Text style={styles.legendText}>Ambar: demorado</Text>
+          <Text style={styles.legendText}>Rojo: offline</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrapper}>

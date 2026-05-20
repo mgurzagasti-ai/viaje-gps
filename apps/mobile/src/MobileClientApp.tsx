@@ -15,6 +15,18 @@ import { readCurrentLocation } from "./location";
 import { TripGroupMap } from "./TripGroupMap";
 import { DashboardResponse, DemoSeedResponse, SessionResponse } from "./types";
 
+function normalizeSearchText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function compareNames(left: string, right: string) {
+  return normalizeSearchText(left).localeCompare(normalizeSearchText(right));
+}
+
 function statusLabel(status: DashboardResponse["members"][number]["connectionStatus"]) {
   if (status === "online") {
     return "En linea";
@@ -132,9 +144,7 @@ export function MobileClientApp() {
   const selectedUser = useMemo(
     () =>
       seed?.demoUsers.find(
-        (item) =>
-          item.name.trim().toLocaleLowerCase("es-AR") ===
-          loginName.trim().toLocaleLowerCase("es-AR"),
+        (item) => normalizeSearchText(item.name) === normalizeSearchText(loginName),
       ) ?? null,
     [loginName, seed],
   );
@@ -159,7 +169,7 @@ export function MobileClientApp() {
         return leftPriority - rightPriority;
       }
 
-      return left.name.localeCompare(right.name, "es-AR");
+      return compareNames(left.name, right.name);
     });
 
     return {
@@ -379,9 +389,8 @@ export function MobileClientApp() {
             />
 
             <Text style={styles.helperText}>
-              En telefono real usa la IP local de tu PC, por ejemplo
-              {" "}
-              `http://192.168.0.10:3000`.
+              Para produccion usa `https://viaje-gps.vercel.app`. Si pruebas en
+              local, usa la IP de tu PC, por ejemplo `http://192.168.0.10:3000`.
             </Text>
           </View>
 
