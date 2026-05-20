@@ -11,18 +11,22 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     userId?: string;
+    userName?: string;
+    userPhone?: string;
     tripCode?: string;
   };
 
-  if (!body.userId || !body.tripCode) {
+  if ((!body.userId && !body.userName) || !body.tripCode) {
     return NextResponse.json(
-      { error: "userId and tripCode are required." },
+      { error: "userId or userName, and tripCode are required." },
       { status: 400 },
     );
   }
 
   const session = await createSession({
     userId: body.userId,
+    userName: body.userName,
+    userPhone: body.userPhone,
     tripCode: body.tripCode,
   });
 

@@ -73,7 +73,9 @@ export interface TripDashboard {
 }
 
 export interface CreateSessionInput {
-  userId: string;
+  userId?: string;
+  userName?: string;
+  userPhone?: string;
   tripCode: string;
 }
 
@@ -85,4 +87,13 @@ export interface CreateLocationInput {
   batteryLevel: number;
   signalStrength: "high" | "medium" | "low";
   recordedAt?: string;
+}
+
+export interface CreateTripInput {
+  name: string;
+  code: string;
+  origin: string;
+  destination: string;
+  checkpoint: string;
+  startsAt?: string;
 }

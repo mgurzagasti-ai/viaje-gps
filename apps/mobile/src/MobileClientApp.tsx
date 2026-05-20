@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createSession, getSeed, getTripDashboard, sendLocation } from "./api";
 import { getDefaultApiBaseUrl } from "./config";
 import { readCurrentLocation } from "./location";
+import { TripGroupMap } from "./TripGroupMap";
 import { DashboardResponse, DemoSeedResponse, SessionResponse } from "./types";
 
 function statusLabel(status: DashboardResponse["members"][number]["connectionStatus"]) {
@@ -54,12 +55,29 @@ function statusTextStyle(
   return [styles.statusChipText, styles.statusOfflineText];
 }
 
+function roleLabel(role: DashboardResponse["members"][number]["role"]) {
+  if (role === "driver") {
+    return "Conductor";
+  }
+
+  if (role === "coordinator") {
+    return "Coordinacion";
+  }
+
+  if (role === "support") {
+    return "Apoyo";
+  }
+
+  return "Viajero";
+}
+
 export function MobileClientApp() {
   const autoSendIntervalMs = 30000;
   const [apiBaseUrl, setApiBaseUrl] = useState(getDefaultApiBaseUrl());
   const [seed, setSeed] = useState<DemoSeedResponse["seed"] | null>(null);
-  const [tripCode, setTripCode] = useState("");
-  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedTripCode, setSelectedTripCode] = useState("");
+  const [loginName, setLoginName] = useState("");
+  const [loginPhone, setLoginPhone] = useState("");
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [loadingSeed, setLoadingSeed] = useState(false);
@@ -86,8 +104,7 @@ export function MobileClientApp() {
         }
 
         setSeed(result.seed);
-        setTripCode((value) => value || result.seed.tripCode);
-        setSelectedUserId((value) => value || result.seed.demoUsers[0]?.id || "");
+        setSelectedTripCode((value) => value || result.seed.trips[0]?.code || result.seed.tripCode);
       } catch (loadError) {
         if (!active) {
           return;
@@ -113,9 +130,43 @@ export function MobileClientApp() {
   }, [apiBaseUrl]);
 
   const selectedUser = useMemo(
-    () => seed?.demoUsers.find((item) => item.id === selectedUserId) ?? null,
-    [seed, selectedUserId],
+    () =>
+      seed?.demoUsers.find(
+        (item) =>
+          item.name.trim().toLocaleLowerCase("es-AR") ===
+          loginName.trim().toLocaleLowerCase("es-AR"),
+      ) ?? null,
+    [loginName, seed],
   );
+
+  const selectedTrip = useMemo(
+    () => seed?.trips.find((trip) => trip.code === selectedTripCode) ?? null,
+    [seed, selectedTripCode],
+  );
+
+  const prioritizedMembers = useMemo(() => {
+    if (!dashboard || !session) {
+      return null;
+    }
+
+    const sorted = [...dashboard.members].sort((left, right) => {
+      const leftPriority =
+        left.userId === session.user.id ? 0 : left.role === "driver" ? 1 : 2;
+      const rightPriority =
+        right.userId === session.user.id ? 0 : right.role === "driver" ? 1 : 2;
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+
+      return left.name.localeCompare(right.name, "es-AR");
+    });
+
+    return {
+      drivers: sorted.filter((member) => member.role === "driver"),
+      others: sorted.filter((member) => member.role !== "driver"),
+    };
+  }, [dashboard, session]);
 
   async function refreshDashboard() {
     if (!session) {
@@ -245,8 +296,8 @@ export function MobileClientApp() {
   }, [apiBaseUrl, autoSharing, session, syncingLocation]);
 
   async function handleLogin() {
-    if (!selectedUserId || !tripCode.trim()) {
-      setError("Elegi un usuario demo e ingresa el codigo del viaje.");
+    if (!loginName.trim() || !loginPhone.trim() || !selectedTripCode.trim()) {
+      setError("Selecciona un viaje y completa tu nombre y telefono.");
       return;
     }
 
@@ -256,8 +307,9 @@ export function MobileClientApp() {
 
     try {
       const result = await createSession(apiBaseUrl, {
-        userId: selectedUserId,
-        tripCode: tripCode.trim(),
+        userName: loginName.trim(),
+        userPhone: loginPhone.trim(),
+        tripCode: selectedTripCode.trim(),
       });
 
       setSession(result);
@@ -308,7 +360,8 @@ export function MobileClientApp() {
               Compartir posicion en tiempo real de forma clara y simple.
             </Text>
             <Text style={styles.heroBody}>
-              App inicial para cada viajero, conectada al monitor web en Next.js.
+              App inicial para cada conductor o viajero, conectada al monitor web en
+              Next.js.
             </Text>
           </View>
 
@@ -335,33 +388,33 @@ export function MobileClientApp() {
           {!session ? (
             <View style={styles.card}>
               <Text style={styles.cardEyebrow}>Acceso al viaje</Text>
-              <Text style={styles.cardTitle}>Ingresar al monitor del grupo</Text>
+              <Text style={styles.cardTitle}>Elegi un viaje y entra</Text>
 
-              <Text style={styles.label}>Codigo del viaje</Text>
-              <TextInput
-                autoCapitalize="characters"
-                onChangeText={setTripCode}
-                style={styles.input}
-                value={tripCode}
-              />
-
-              <Text style={styles.label}>Usuario demo</Text>
-              <View style={styles.userGrid}>
-                {seed?.demoUsers.map((user) => {
-                  const active = user.id === selectedUserId;
+              <Text style={styles.label}>Viajes disponibles</Text>
+              <View style={styles.tripGrid}>
+                {seed?.trips.map((trip) => {
+                  const active = trip.code === selectedTripCode;
 
                   return (
                     <Pressable
-                      key={user.id}
-                      onPress={() => setSelectedUserId(user.id)}
-                      style={[styles.userChip, active && styles.userChipActive]}
+                      key={trip.id}
+                      onPress={() => setSelectedTripCode(trip.code)}
+                      style={[styles.tripCard, active && styles.tripCardActive]}
                     >
-                      <Text style={[styles.userChipName, active && styles.userChipNameActive]}>
-                        {user.name}
+                      <Text style={[styles.tripCardName, active && styles.tripCardNameActive]}>
+                        {trip.name}
                       </Text>
-                      <Text style={[styles.userChipRole, active && styles.userChipRoleActive]}>
-                        {user.role}
+                      <Text style={[styles.tripCardRoute, active && styles.tripCardRouteActive]}>
+                        {trip.origin} a {trip.destination}
                       </Text>
+                      <View style={styles.tripCardFooter}>
+                        <Text style={[styles.tripCardCode, active && styles.tripCardCodeActive]}>
+                          {trip.code}
+                        </Text>
+                        <Text style={[styles.tripCardCheckpoint, active && styles.tripCardCheckpointActive]}>
+                          {trip.checkpoint}
+                        </Text>
+                      </View>
                     </Pressable>
                   );
                 })}
@@ -370,15 +423,60 @@ export function MobileClientApp() {
               {loadingSeed ? (
                 <View style={styles.inlineRow}>
                   <ActivityIndicator color="#0b6b78" />
-                  <Text style={styles.inlineText}>Cargando usuarios demo...</Text>
+                  <Text style={styles.inlineText}>Cargando viajes...</Text>
                 </View>
               ) : null}
 
+              {selectedTrip ? (
+                <View style={styles.softPanel}>
+                  <Text style={styles.softPanelLabel}>Viaje seleccionado</Text>
+                  <Text style={styles.softPanelTitle}>{selectedTrip.name}</Text>
+                  <Text style={styles.softPanelBody}>
+                    Codigo {selectedTrip.code} · {selectedTrip.origin} a {selectedTrip.destination}
+                  </Text>
+                </View>
+              ) : null}
+
+              <Text style={styles.label}>Tu nombre</Text>
+              <TextInput
+                autoCapitalize="words"
+                autoCorrect={false}
+                onChangeText={setLoginName}
+                placeholder="Ej. Martin Quiroga"
+                placeholderTextColor="#8aa0a7"
+                style={styles.input}
+                value={loginName}
+              />
+
+              <Text style={styles.label}>Tu telefono</Text>
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="phone-pad"
+                onChangeText={setLoginPhone}
+                placeholder="Ej. +54 388 455 1002"
+                placeholderTextColor="#8aa0a7"
+                style={styles.input}
+                value={loginPhone}
+              />
+
+              <Text style={styles.helperText}>
+                Toca un viaje de la lista y la app usa ese codigo automaticamente.
+              </Text>
+
               {selectedUser ? (
                 <View style={styles.softPanel}>
-                  <Text style={styles.softPanelLabel}>Seleccion actual</Text>
+                  <Text style={styles.softPanelLabel}>Ingreso reconocido</Text>
                   <Text style={styles.softPanelTitle}>{selectedUser.name}</Text>
                   <Text style={styles.softPanelBody}>Rol: {selectedUser.role}</Text>
+                </View>
+              ) : loginName.trim() ? (
+                <View style={styles.softPanel}>
+                  <Text style={styles.softPanelLabel}>Validacion</Text>
+                  <Text style={styles.softPanelTitle}>Nombre nuevo o aun no registrado</Text>
+                  <Text style={styles.softPanelBody}>
+                    Si no existe todavia, se crea como conductor cuando ingreses.
+                  </Text>
                 </View>
               ) : null}
 
@@ -411,7 +509,7 @@ export function MobileClientApp() {
                 <View style={styles.statsRow}>
                   <View style={styles.miniStat}>
                     <Text style={styles.miniStatLabel}>Mi rol</Text>
-                    <Text style={styles.miniStatValue}>{session.user.role}</Text>
+                    <Text style={styles.miniStatValue}>{roleLabel(session.user.role)}</Text>
                   </View>
                   <View style={styles.miniStat}>
                     <Text style={styles.miniStatLabel}>Trip code</Text>
@@ -479,7 +577,7 @@ export function MobileClientApp() {
                 </Pressable>
               </View>
 
-              {dashboard ? (
+              {dashboard && prioritizedMembers ? (
                 <>
                   <View style={styles.summaryRow}>
                     <View style={styles.summaryCard}>
@@ -503,46 +601,141 @@ export function MobileClientApp() {
                   </View>
 
                   <View style={styles.card}>
-                    <Text style={styles.cardEyebrow}>Integrantes del viaje</Text>
-                    <Text style={styles.cardTitle}>Seguimiento visible para todos</Text>
+                    <Text style={styles.cardEyebrow}>Vista compartida del viaje</Text>
+                    <Text style={styles.cardTitle}>Mapa real para conductor y equipo</Text>
+                    <Text style={styles.cardBody}>
+                      Esta pantalla ya no depende solo del monitor central: cualquier
+                      conductor autenticado puede ver al grupo completo desde su celular.
+                    </Text>
 
-                    <View style={styles.stack}>
-                      {dashboard.members.map((member) => (
-                        <View key={member.userId} style={styles.memberCard}>
-                          <View style={styles.rowBetween}>
-                            <View style={styles.flexOne}>
-                              <Text style={styles.memberName}>{member.name}</Text>
-                              <Text style={styles.memberMeta}>
-                                {member.role} · {member.phone}
-                              </Text>
+                    <View style={styles.mapCard}>
+                      <TripGroupMap
+                        currentUserId={session.user.id}
+                        members={dashboard.members}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.card}>
+                    <Text style={styles.cardEyebrow}>Conductores primero</Text>
+                    <Text style={styles.cardTitle}>Seguimiento ordenado por rol</Text>
+                    <Text style={styles.cardBody}>
+                      La vista prioriza a los conductores del viaje y deja el resto del
+                      equipo en un bloque separado para ubicar rapido a cada unidad.
+                    </Text>
+
+                    <View style={styles.sectionBlock}>
+                      <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Conductores del viaje</Text>
+                        <Text style={styles.sectionBadge}>
+                          {prioritizedMembers.drivers.length}
+                        </Text>
+                      </View>
+
+                      <View style={styles.stack}>
+                        {prioritizedMembers.drivers.map((member) => (
+                          <View key={member.userId} style={styles.memberCard}>
+                            <View style={styles.rowBetween}>
+                              <View style={styles.flexOne}>
+                                <Text style={styles.memberName}>
+                                  {member.userId === session.user.id ? "Vos" : member.name}
+                                </Text>
+                                <Text style={styles.memberMeta}>
+                                  {roleLabel(member.role)} · {member.phone}
+                                </Text>
+                              </View>
+                              <View style={statusChipStyle(member.connectionStatus)}>
+                                <Text style={statusTextStyle(member.connectionStatus)}>
+                                  {statusLabel(member.connectionStatus)}
+                                </Text>
+                              </View>
                             </View>
-                            <View style={statusChipStyle(member.connectionStatus)}>
-                              <Text style={statusTextStyle(member.connectionStatus)}>
-                                {statusLabel(member.connectionStatus)}
-                              </Text>
+
+                            <View style={styles.detailRow}>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Precision</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${Math.round(member.latestLocation.accuracy)} m`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Ubicacion</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${member.latestLocation.latitude.toFixed(3)}, ${member.latestLocation.longitude.toFixed(3)}`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Bateria</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${member.latestLocation.batteryLevel}%`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
                             </View>
                           </View>
+                        ))}
+                      </View>
+                    </View>
 
-                          <View style={styles.detailRow}>
-                            <View style={styles.detailCard}>
-                              <Text style={styles.detailLabel}>Precision</Text>
-                              <Text style={styles.detailValue}>
-                                {member.latestLocation
-                                  ? `${Math.round(member.latestLocation.accuracy)} m`
-                                  : "Sin dato"}
-                              </Text>
+                    <View style={styles.sectionBlock}>
+                      <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Coordinacion y resto del grupo</Text>
+                        <Text style={styles.sectionBadge}>
+                          {prioritizedMembers.others.length}
+                        </Text>
+                      </View>
+
+                      <View style={styles.stack}>
+                        {prioritizedMembers.others.map((member) => (
+                          <View key={member.userId} style={styles.memberCard}>
+                            <View style={styles.rowBetween}>
+                              <View style={styles.flexOne}>
+                                <Text style={styles.memberName}>{member.name}</Text>
+                                <Text style={styles.memberMeta}>
+                                  {roleLabel(member.role)} · {member.phone}
+                                </Text>
+                              </View>
+                              <View style={statusChipStyle(member.connectionStatus)}>
+                                <Text style={statusTextStyle(member.connectionStatus)}>
+                                  {statusLabel(member.connectionStatus)}
+                                </Text>
+                              </View>
                             </View>
-                            <View style={styles.detailCard}>
-                              <Text style={styles.detailLabel}>Bateria</Text>
-                              <Text style={styles.detailValue}>
-                                {member.latestLocation
-                                  ? `${member.latestLocation.batteryLevel}%`
-                                  : "Sin dato"}
-                              </Text>
+
+                            <View style={styles.detailRow}>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Precision</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${Math.round(member.latestLocation.accuracy)} m`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Ubicacion</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${member.latestLocation.latitude.toFixed(3)}, ${member.latestLocation.longitude.toFixed(3)}`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
+                              <View style={styles.detailCard}>
+                                <Text style={styles.detailLabel}>Bateria</Text>
+                                <Text style={styles.detailValue}>
+                                  {member.latestLocation
+                                    ? `${member.latestLocation.batteryLevel}%`
+                                    : "Sin dato"}
+                                </Text>
+                              </View>
                             </View>
                           </View>
-                        </View>
-                      ))}
+                        ))}
+                      </View>
                     </View>
                   </View>
 
@@ -676,37 +869,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  userGrid: {
+  tripGrid: {
     marginTop: 12,
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 12,
   },
-  userChip: {
-    borderRadius: 16,
+  tripCard: {
+    borderRadius: 18,
     backgroundColor: "#eef5f5",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minWidth: "46%",
+    padding: 16,
   },
-  userChipActive: {
-    backgroundColor: "#e48649",
+  tripCardActive: {
+    backgroundColor: "#0b6b78",
   },
-  userChipName: {
+  tripCardName: {
     color: "#12343f",
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
   },
-  userChipNameActive: {
+  tripCardNameActive: {
     color: "#ffffff",
   },
-  userChipRole: {
+  tripCardRoute: {
     marginTop: 4,
     color: "#61757d",
-    fontSize: 12,
+    fontSize: 13,
   },
-  userChipRoleActive: {
-    color: "rgba(255,255,255,0.84)",
+  tripCardRouteActive: {
+    color: "rgba(255,255,255,0.8)",
+  },
+  tripCardFooter: {
+    marginTop: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  tripCardCode: {
+    borderRadius: 999,
+    backgroundColor: "#ffffff",
+    color: "#0b6b78",
+    fontSize: 12,
+    fontWeight: "700",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  tripCardCodeActive: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    color: "#ffffff",
+  },
+  tripCardCheckpoint: {
+    color: "#61757d",
+    fontSize: 12,
+    flex: 1,
+    textAlign: "right",
+  },
+  tripCardCheckpointActive: {
+    color: "rgba(255,255,255,0.8)",
   },
   inlineRow: {
     marginTop: 16,
@@ -870,6 +1089,34 @@ const styles = StyleSheet.create({
     marginTop: 16,
     gap: 14,
   },
+  mapCard: {
+    marginTop: 18,
+  },
+  sectionBlock: {
+    marginTop: 20,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionTitle: {
+    color: "#12343f",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  sectionBadge: {
+    minWidth: 34,
+    borderRadius: 999,
+    backgroundColor: "#edf4f4",
+    color: "#12343f",
+    fontSize: 13,
+    fontWeight: "700",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textAlign: "center",
+  },
   memberCard: {
     borderRadius: 22,
     backgroundColor: "#f6fbfb",
@@ -915,10 +1162,12 @@ const styles = StyleSheet.create({
   detailRow: {
     marginTop: 14,
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
   detailCard: {
     flex: 1,
+    minWidth: 92,
     borderRadius: 16,
     backgroundColor: "#ffffff",
     paddingHorizontal: 14,
@@ -934,7 +1183,7 @@ const styles = StyleSheet.create({
   detailValue: {
     marginTop: 8,
     color: "#12343f",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
   },
   eventCard: {

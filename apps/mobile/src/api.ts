@@ -32,7 +32,12 @@ export function getSeed(apiBaseUrl: string) {
 
 export function createSession(
   apiBaseUrl: string,
-  payload: { userId: string; tripCode: string },
+  payload: {
+    userId?: string;
+    userName?: string;
+    userPhone?: string;
+    tripCode: string;
+  },
 ) {
   return request<SessionResponse>(apiBaseUrl, "/api/auth/session", {
     method: "POST",

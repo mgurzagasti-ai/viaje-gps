@@ -4,6 +4,16 @@ export interface DemoSeedResponse {
   message: string;
   seed: {
     tripCode: string;
+    trips: Array<{
+      id: string;
+      name: string;
+      code: string;
+      origin: string;
+      destination: string;
+      checkpoint: string;
+      status: "planned" | "active" | "paused" | "completed";
+      startsAt: string;
+    }>;
     demoUsers: Array<{
       id: string;
       name: string;
