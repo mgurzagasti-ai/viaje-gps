@@ -5,6 +5,14 @@ import { MonitorAutoRefresh } from "@/components/monitor-auto-refresh";
 import { TripCreationForm } from "@/components/trip-creation-form";
 import { TravelMonitorPanel } from "@/components/travel-monitor-panel";
 import {
+  authenticateMonitor,
+  clearMonitorSession,
+  createMonitorSession,
+  getMonitorConfigStatus,
+  isMonitorAuthenticated,
+  requireMonitorAuthentication,
+} from "@/lib/monitor-auth";
+import {
   createTrip,
   deleteTrip,
   getAllTrips,
@@ -16,6 +24,8 @@ export const dynamic = "force-dynamic";
 
 async function createTripAction(formData: FormData) {
   "use server";
+
+  await requireMonitorAuthentication();
 
   const name = String(formData.get("name") ?? "").trim();
   const code = String(formData.get("code") ?? "").trim();
@@ -53,6 +63,8 @@ async function createTripAction(formData: FormData) {
 async function deleteTripAction(formData: FormData) {
   "use server";
 
+  await requireMonitorAuthentication();
+
   const tripId = String(formData.get("tripId") ?? "").trim();
 
   if (!tripId) {
@@ -79,6 +91,8 @@ async function deleteTripAction(formData: FormData) {
 async function resolveEmergencyAlertAction(formData: FormData) {
   "use server";
 
+  await requireMonitorAuthentication();
+
   const alertId = String(formData.get("alertId") ?? "").trim();
 
   if (!alertId) {
@@ -87,6 +101,27 @@ async function resolveEmergencyAlertAction(formData: FormData) {
 
   await resolveEmergencyAlert(alertId);
   revalidatePath("/");
+}
+
+async function loginAction(formData: FormData) {
+  "use server";
+
+  const username = String(formData.get("username") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+
+  if (!(await authenticateMonitor(username, password))) {
+    redirect("/?error=invalid-login");
+  }
+
+  await createMonitorSession();
+  redirect("/");
+}
+
+async function logoutAction() {
+  "use server";
+
+  await clearMonitorSession();
+  redirect("/");
 }
 
 type HomeProps = {
@@ -98,6 +133,102 @@ type HomeProps = {
 
 export default async function Home({ searchParams }: HomeProps) {
   const params = searchParams ? await searchParams : undefined;
+  const monitorConfig = getMonitorConfigStatus();
+  const isAuthorized = await isMonitorAuthenticated();
+
+  if (!isAuthorized) {
+    const loginError =
+      !monitorConfig.isConfigured && process.env.NODE_ENV === "production"
+        ? "Faltan variables del monitor en el servidor. Configura MONITOR_USERNAME, MONITOR_PASSWORD y MONITOR_SESSION_SECRET."
+        : params?.error === "invalid-login"
+        ? "Usuario o contrasena incorrectos."
+        : params?.error === "unauthorized"
+          ? "Necesitas iniciar sesion para entrar al monitor."
+          : null;
+
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-1 items-center px-4 py-8 sm:px-6 lg:px-8">
+        <section className="hero-shimmer relative mx-auto grid w-full max-w-5xl gap-8 overflow-hidden rounded-[2.5rem] border border-white/40 bg-[linear-gradient(135deg,rgba(7,42,51,.97),rgba(10,86,104,.93),rgba(227,123,67,.9))] p-6 text-white shadow-[0_32px_90px_rgba(7,42,51,.28)] lg:grid-cols-[1.1fr_0.9fr] lg:p-10">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,.18),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,.12),transparent_22%)]" />
+
+          <div className="relative flex flex-col justify-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.38em] text-white/70">
+              Acceso protegido
+            </p>
+            <h1 className="hero-neon-title hero-title-float mt-4 text-4xl font-black sm:text-5xl">
+              <span className="text-white">Monitor</span>
+              <span className="mx-2 text-white/55">-</span>
+              <span className="hero-neon-gps bg-[linear-gradient(135deg,#fff6dd,#ffffff,#ffd1b5)] bg-clip-text text-transparent">
+                Viaje GPS
+              </span>
+            </h1>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-white/78 sm:text-base">
+              El panel de seguimiento solo se muestra a usuarios autorizados. Inicia
+              sesion para ver viajes, ubicaciones y alertas activas.
+            </p>
+            <div className="mt-6 grid gap-3 text-sm text-white/78 sm:grid-cols-2">
+              <div className="rounded-[1.4rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
+                Monitoreo en vivo del convoy
+              </div>
+              <div className="rounded-[1.4rem] border border-white/15 bg-white/10 p-4 backdrop-blur">
+                Acciones protegidas del lado servidor
+              </div>
+            </div>
+          </div>
+
+          <div className="relative rounded-[2rem] border border-white/20 bg-white/12 p-6 backdrop-blur-xl">
+            <p className="text-sm uppercase tracking-[0.28em] text-white/65">
+              Iniciar sesion
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">Credenciales del monitor</h2>
+            <p className="mt-3 text-sm leading-6 text-white/75">
+              El acceso se valida en el servidor y la sesion queda guardada en una
+              cookie segura.
+            </p>
+
+            {loginError ? (
+              <div className="mt-5 rounded-2xl border border-rose-300/40 bg-rose-950/30 px-4 py-3 text-sm text-rose-100">
+                {loginError}
+              </div>
+            ) : null}
+
+            <form action={loginAction} className="mt-6 grid gap-4">
+              <label className="grid gap-2 text-sm">
+                <span className="font-medium text-white/78">Usuario</span>
+                <input
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  className="rounded-2xl border border-white/15 bg-white/92 px-4 py-3 text-[var(--ink)] outline-none transition placeholder:text-slate-400 focus:border-white/40 focus:bg-white"
+                  placeholder="Ingresar usuario"
+                  required
+                />
+              </label>
+              <label className="grid gap-2 text-sm">
+                <span className="font-medium text-white/78">Contrasena</span>
+                <input
+                  type="password"
+                  name="password"
+                  autoComplete="current-password"
+                  className="rounded-2xl border border-white/15 bg-white/92 px-4 py-3 text-[var(--ink)] outline-none transition placeholder:text-slate-400 focus:border-white/40 focus:bg-white"
+                  placeholder="Ingresar contrasena"
+                  required
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={!monitorConfig.isConfigured && process.env.NODE_ENV === "production"}
+                className="mt-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[var(--accent-strong)] transition hover:bg-[#fff5ee]"
+              >
+                Entrar al monitor
+              </button>
+            </form>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   const trips = await getAllTrips();
   const selectedTripId = params?.tripId ?? trips[0]?.id ?? null;
   const dashboard = selectedTripId ? await getTripDashboard(selectedTripId) : null;
@@ -201,6 +332,14 @@ export default async function Home({ searchParams }: HomeProps) {
               {dashboard ? "Monitoreo en vivo" : "Listo para cargar un viaje"}
             </span>
           </div>
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20"
+            >
+              Cerrar sesion
+            </button>
+          </form>
         </div>
       </section>
 
