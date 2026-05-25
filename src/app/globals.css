@@ -127,6 +127,106 @@ a {
   font-size: 14px;
 }
 
+@keyframes hero-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes hero-shimmer {
+  0% {
+    transform: translateX(-140%) skewX(-18deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.18;
+  }
+  60% {
+    opacity: 0.28;
+  }
+  100% {
+    transform: translateX(180%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@keyframes hero-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes neon-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.18))
+      drop-shadow(0 0 18px rgba(76, 226, 255, 0.18));
+    text-shadow:
+      0 0 10px rgba(255, 255, 255, 0.18),
+      0 0 24px rgba(96, 165, 250, 0.18);
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.3))
+      drop-shadow(0 0 28px rgba(34, 211, 238, 0.36));
+    text-shadow:
+      0 0 14px rgba(255, 255, 255, 0.3),
+      0 0 34px rgba(45, 212, 191, 0.34),
+      0 0 56px rgba(251, 146, 60, 0.22);
+  }
+}
+
+.hero-title-float {
+  animation: hero-float 4.4s ease-in-out infinite;
+}
+
+.hero-card-fade-up {
+  animation: hero-fade-up 0.8s ease-out;
+}
+
+.hero-shimmer {
+  overflow: hidden;
+  position: relative;
+}
+
+.hero-shimmer::after {
+  animation: hero-shimmer 5.2s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+  content: "";
+  inset: -20%;
+  pointer-events: none;
+  position: absolute;
+}
+
+.hero-neon-title {
+  letter-spacing: -0.04em;
+  text-shadow:
+    0 0 18px rgba(255, 255, 255, 0.14),
+    0 0 44px rgba(15, 125, 143, 0.16);
+}
+
+.hero-neon-gps {
+  animation: neon-pulse 2.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(255, 245, 220, 0.2));
+  text-shadow:
+    0 0 12px rgba(255, 255, 255, 0.18),
+    0 0 28px rgba(253, 186, 116, 0.22);
+}
+
 @keyframes emergency-panel-glow {
   0%,
   100% {

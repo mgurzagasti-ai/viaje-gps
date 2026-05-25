@@ -176,6 +176,34 @@ export default async function Home({ searchParams }: HomeProps) {
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <MonitorAutoRefresh intervalMs={15000} />
 
+      <section className="hero-shimmer relative overflow-hidden rounded-[2rem] border border-white/40 bg-[linear-gradient(135deg,rgba(7,42,51,.96),rgba(10,86,104,.92),rgba(227,123,67,.88))] px-6 py-6 text-white shadow-[0_28px_80px_rgba(7,42,51,.24)] sm:px-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,.2),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,.12),transparent_24%)]" />
+        <div className="relative flex flex-col items-center gap-5 text-center">
+          <div className="hero-card-fade-up flex flex-col items-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.38em] text-white/70">
+              Plataforma de monitoreo
+            </p>
+            <h1 className="hero-neon-title hero-title-float mt-3 text-4xl font-black sm:text-5xl">
+              <span className="text-white">Viaje</span>
+              <span className="mx-2 text-white/55">-</span>
+              <span className="hero-neon-gps bg-[linear-gradient(135deg,#fff6dd,#ffffff,#ffd1b5)] bg-clip-text text-transparent">
+                GPS
+              </span>
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/78 sm:text-base">
+              Seguimiento visual del convoy, alertas activas y control operativo desde
+              una sola pantalla.
+            </p>
+          </div>
+          <div className="grid gap-2 rounded-[1.5rem] border border-white/15 bg-white/10 px-4 py-4 text-center text-sm backdrop-blur">
+            <span className="text-white/65">Estado del panel</span>
+            <span className="text-lg font-semibold text-white">
+              {dashboard ? "Monitoreo en vivo" : "Listo para cargar un viaje"}
+            </span>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-[2rem] border border-[rgba(6,39,47,.08)] bg-white/92 p-6 shadow-[0_24px_60px_rgba(31,60,68,.12)]">
           <p className="text-sm uppercase tracking-[0.28em] text-[var(--muted)]">
