@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { TripMap } from "@/components/trip-map";
 
 type TravelerView = {
@@ -34,7 +35,22 @@ type TravelMonitorPanelProps = {
     message: string;
     updatedAt: string;
   }>;
+  resolveEmergencyAlertAction: (formData: FormData) => Promise<void>;
 };
+
+function EmergencyClearButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-full border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {pending ? "Borrando..." : "Borrado de emergencia"}
+    </button>
+  );
+}
 
 export function TravelMonitorPanel({
   travelers,
@@ -43,10 +59,14 @@ export function TravelMonitorPanel({
   checkpoint,
   alternativeCheckpoints,
   activeEmergencyAlerts,
+  resolveEmergencyAlertAction,
 }: TravelMonitorPanelProps) {
   const [viewMode, setViewMode] = useState<"group" | "individual">("group");
   const [selectedTravelerName, setSelectedTravelerName] = useState(
     travelers[0]?.name ?? "",
+  );
+  const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(
+    activeEmergencyAlerts.length > 0,
   );
 
   const selectedTraveler = useMemo(
@@ -57,35 +77,83 @@ export function TravelMonitorPanel({
   const mapTravelers =
     viewMode === "group" ? travelers : selectedTraveler ? [selectedTraveler] : [];
 
+  const emergencyAlertIds = activeEmergencyAlerts.map((alert) => alert.id).join("|");
+
+  useEffect(() => {
+    setIsEmergencyModalOpen(activeEmergencyAlerts.length > 0);
+  }, [activeEmergencyAlerts.length, emergencyAlertIds]);
+
   return (
     <section className="grid gap-6">
-      {activeEmergencyAlerts.length > 0 ? (
-        <section className="rounded-[2rem] border border-rose-200 bg-[linear-gradient(135deg,#fff4f2,#ffe8e3)] p-6 shadow-[0_18px_50px_rgba(161,47,25,.12)]">
-          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-rose-700">
-            Emergencia activa
-          </p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {activeEmergencyAlerts.map((alert) => (
-              <article
-                key={alert.id}
-                className="rounded-[1.35rem] border border-rose-200 bg-white/85 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-semibold text-rose-800">
-                      {alert.type === "accident" ? "Accidente" : "911"} · {alert.userName}
-                    </p>
-                    <p className="text-sm text-rose-700">{alert.userPhone}</p>
-                  </div>
-                  <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
-                    Ayuda
+      {activeEmergencyAlerts.length > 0 && isEmergencyModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(10,20,24,.52)] px-4 py-6 backdrop-blur-sm sm:items-center">
+          <section className="emergency-panel-blink w-full max-w-3xl rounded-[2rem] border border-rose-200 bg-[linear-gradient(145deg,#fff7f5,#ffe7e1)] p-5 shadow-[0_30px_90px_rgba(120,24,24,.28)] sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold uppercase tracking-[0.28em] text-rose-700">
+                    Emergencia activa
+                  </p>
+                  <span className="emergency-bounce inline-flex rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                    Urgente
                   </span>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-[var(--ink)]">{alert.message}</p>
-              </article>
-            ))}
-          </div>
-        </section>
+                <h3 className="mt-3 text-2xl font-semibold text-rose-950 sm:text-3xl">
+                  {activeEmergencyAlerts.length === 1
+                    ? "Un integrante necesita asistencia inmediata."
+                    : `${activeEmergencyAlerts.length} integrantes reportaron problemas.`}
+                </h3>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-rose-900/80">
+                  Esta alerta queda al frente del monitor para que el operador vea el
+                  incidente apenas entra y pueda actuar sin perder tiempo.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEmergencyModalOpen(false)}
+                className="rounded-full border border-rose-200 bg-white/85 px-4 py-2 text-sm font-medium text-rose-700 transition hover:bg-white"
+              >
+                Cerrar vista
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {activeEmergencyAlerts.map((alert) => (
+                <article
+                  key={alert.id}
+                  className="rounded-[1.5rem] border border-rose-200 bg-white/92 p-4 shadow-[0_10px_30px_rgba(190,24,93,.08)]"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold text-rose-800">
+                        {alert.type === "accident" ? "Accidente" : "911"} · {alert.userName}
+                      </p>
+                      <p className="text-sm text-rose-700">{alert.userPhone}</p>
+                    </div>
+                    <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+                      Ayuda inmediata
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-[var(--ink)]">{alert.message}</p>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-rose-700/80">
+                      Actualizada{" "}
+                      {new Date(alert.updatedAt).toLocaleTimeString("es-AR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </p>
+                    <form action={resolveEmergencyAlertAction}>
+                      <input type="hidden" name="alertId" value={alert.id} />
+                      <EmergencyClearButton />
+                    </form>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
       ) : null}
 
       <div className="rounded-[2rem] border border-[rgba(6,39,47,.08)] bg-white/92 p-6 shadow-[0_24px_60px_rgba(31,60,68,.12)]">

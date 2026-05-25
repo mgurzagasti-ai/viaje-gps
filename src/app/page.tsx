@@ -4,7 +4,13 @@ import { redirect } from "next/navigation";
 import { MonitorAutoRefresh } from "@/components/monitor-auto-refresh";
 import { TripCreationForm } from "@/components/trip-creation-form";
 import { TravelMonitorPanel } from "@/components/travel-monitor-panel";
-import { createTrip, deleteTrip, getAllTrips, getTripDashboard } from "@/lib/store";
+import {
+  createTrip,
+  deleteTrip,
+  getAllTrips,
+  getTripDashboard,
+  resolveEmergencyAlert,
+} from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +74,19 @@ async function deleteTripAction(formData: FormData) {
   }
 
   redirect("/");
+}
+
+async function resolveEmergencyAlertAction(formData: FormData) {
+  "use server";
+
+  const alertId = String(formData.get("alertId") ?? "").trim();
+
+  if (!alertId) {
+    return;
+  }
+
+  await resolveEmergencyAlert(alertId);
+  revalidatePath("/");
 }
 
 type HomeProps = {
@@ -374,6 +393,7 @@ export default async function Home({ searchParams }: HomeProps) {
             checkpoint={dashboard.trip.checkpoint}
             alternativeCheckpoints={dashboard.trip.alternativeCheckpoints}
             activeEmergencyAlerts={dashboard.activeEmergencyAlerts}
+            resolveEmergencyAlertAction={resolveEmergencyAlertAction}
           />
 
           <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">

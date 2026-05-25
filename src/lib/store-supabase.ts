@@ -765,6 +765,45 @@ export async function createEmergencyAlert(
   return createdAlerts[0] ? toEmergencyAlert(createdAlerts[0]) : null;
 }
 
+export async function resolveEmergencyAlert(alertId: string) {
+  let existingAlerts: DbEmergencyAlert[];
+
+  try {
+    existingAlerts = await supabaseRequest<DbEmergencyAlert[]>(
+      `emergency_alerts?select=id,trip_id,user_id,type,message,status,created_at,updated_at,resolved_at&id=eq.${encodeURIComponent(alertId)}&limit=1`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    throw new Error(
+      "La tabla de emergencias todavia no existe en Supabase. Ejecuta el SQL nuevo de docs/supabase-schema.sql.",
+    );
+  }
+
+  if (!existingAlerts[0]) {
+    return { error: "alert-not-found" as const };
+  }
+
+  const resolvedAt = nowIso();
+
+  await supabaseRequest<DbEmergencyAlert[]>(
+    `emergency_alerts?id=eq.${encodeURIComponent(alertId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "resolved",
+        updated_at: resolvedAt,
+        resolved_at: resolvedAt,
+      }),
+      prefer: "return=representation",
+    },
+  );
+
+  return { alertId };
+}
+
 export async function getSeedCredentials() {
   const trips = await getAllTrips();
   const users = await supabaseRequest<DbUser[]>("users?select=id,name,phone,role");

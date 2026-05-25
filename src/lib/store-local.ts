@@ -559,6 +559,24 @@ export async function createEmergencyAlert(
   return alert;
 }
 
+export async function resolveEmergencyAlert(alertId: string) {
+  const state = await readState();
+  const existingAlert = state.emergencyAlerts.find((alert) => alert.id === alertId);
+
+  if (!existingAlert) {
+    return { error: "alert-not-found" as const };
+  }
+
+  const resolvedAt = nowIso();
+  existingAlert.status = "resolved";
+  existingAlert.updatedAt = resolvedAt;
+  existingAlert.resolvedAt = resolvedAt;
+
+  await writeState(state);
+
+  return { alertId };
+}
+
 export async function getSeedCredentials() {
   const state = await readState();
   return {
