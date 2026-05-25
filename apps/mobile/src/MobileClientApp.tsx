@@ -3,13 +3,20 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
+  Switch,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createSession, getSeed, getTripDashboard, sendLocation } from "./api";
+import {
+  createSession,
+  getSeed,
+  getTripDashboard,
+  sendEmergencyAlert,
+  sendLocation,
+} from "./api";
 import { getDefaultApiBaseUrl } from "./config";
 import { readCurrentLocation } from "./location";
 import { TripGroupMap } from "./TripGroupMap";
@@ -87,7 +94,7 @@ export function MobileClientApp() {
   const autoSendIntervalMs = 30000;
   const [apiBaseUrl, setApiBaseUrl] = useState(getDefaultApiBaseUrl());
   const [seed, setSeed] = useState<DemoSeedResponse["seed"] | null>(null);
-  const [selectedTripCode, setSelectedTripCode] = useState("");
+  const [tripCode, setTripCode] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPhone, setLoginPhone] = useState("");
   const [session, setSession] = useState<SessionResponse | null>(null);
@@ -96,6 +103,7 @@ export function MobileClientApp() {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingLocation, setSyncingLocation] = useState(false);
+  const [sendingEmergency, setSendingEmergency] = useState(false);
   const [autoSharing, setAutoSharing] = useState(true);
   const [lastLocationSync, setLastLocationSync] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -116,7 +124,6 @@ export function MobileClientApp() {
         }
 
         setSeed(result.seed);
-        setSelectedTripCode((value) => value || result.seed.trips[0]?.code || result.seed.tripCode);
       } catch (loadError) {
         if (!active) {
           return;
@@ -147,11 +154,6 @@ export function MobileClientApp() {
         (item) => normalizeSearchText(item.name) === normalizeSearchText(loginName),
       ) ?? null,
     [loginName, seed],
-  );
-
-  const selectedTrip = useMemo(
-    () => seed?.trips.find((trip) => trip.code === selectedTripCode) ?? null,
-    [seed, selectedTripCode],
   );
 
   const prioritizedMembers = useMemo(() => {
@@ -306,8 +308,8 @@ export function MobileClientApp() {
   }, [apiBaseUrl, autoSharing, session, syncingLocation]);
 
   async function handleLogin() {
-    if (!loginName.trim() || !loginPhone.trim() || !selectedTripCode.trim()) {
-      setError("Selecciona un viaje y completa tu nombre y telefono.");
+    if (!loginName.trim() || !loginPhone.trim() || !tripCode.trim()) {
+      setError("Ingresa el codigo del viaje y completa tu nombre y telefono.");
       return;
     }
 
@@ -319,7 +321,7 @@ export function MobileClientApp() {
       const result = await createSession(apiBaseUrl, {
         userName: loginName.trim(),
         userPhone: loginPhone.trim(),
-        tripCode: selectedTripCode.trim(),
+        tripCode: tripCode.trim().toUpperCase(),
       });
 
       setSession(result);
@@ -350,6 +352,38 @@ export function MobileClientApp() {
     }
 
     await submitCurrentLocation();
+  }
+
+  async function handleEmergencyAlert(type: "accident" | "sos") {
+    if (!session || sendingEmergency) {
+      return;
+    }
+
+    setSendingEmergency(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const payload = await readCurrentLocation();
+      await sendLocation(apiBaseUrl, session.token, session.trip.id, payload);
+      await sendEmergencyAlert(apiBaseUrl, session.token, session.trip.id, {
+        type,
+      });
+      await refreshDashboard();
+      setFeedback(
+        type === "accident"
+          ? "Alerta de accidente enviada a la flota."
+          : "Pedido 911 enviado a la flota.",
+      );
+    } catch (emergencyError) {
+      setError(
+        emergencyError instanceof Error
+          ? emergencyError.message
+          : "No se pudo enviar la alerta de emergencia.",
+      );
+    } finally {
+      setSendingEmergency(false);
+    }
   }
 
   function handleReset() {
@@ -397,52 +431,24 @@ export function MobileClientApp() {
           {!session ? (
             <View style={styles.card}>
               <Text style={styles.cardEyebrow}>Acceso al viaje</Text>
-              <Text style={styles.cardTitle}>Elegi un viaje y entra</Text>
+              <Text style={styles.cardTitle}>Entrar con codigo privado</Text>
 
-              <Text style={styles.label}>Viajes disponibles</Text>
-              <View style={styles.tripGrid}>
-                {seed?.trips.map((trip) => {
-                  const active = trip.code === selectedTripCode;
-
-                  return (
-                    <Pressable
-                      key={trip.id}
-                      onPress={() => setSelectedTripCode(trip.code)}
-                      style={[styles.tripCard, active && styles.tripCardActive]}
-                    >
-                      <Text style={[styles.tripCardName, active && styles.tripCardNameActive]}>
-                        {trip.name}
-                      </Text>
-                      <Text style={[styles.tripCardRoute, active && styles.tripCardRouteActive]}>
-                        {trip.origin} a {trip.destination}
-                      </Text>
-                      <View style={styles.tripCardFooter}>
-                        <Text style={[styles.tripCardCode, active && styles.tripCardCodeActive]}>
-                          {trip.code}
-                        </Text>
-                        <Text style={[styles.tripCardCheckpoint, active && styles.tripCardCheckpointActive]}>
-                          {trip.checkpoint}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <Text style={styles.label}>Codigo del viaje</Text>
+              <TextInput
+                autoCapitalize="characters"
+                autoCorrect={false}
+                onChangeText={setTripCode}
+                placeholder="Te lo entrega el propietario o monitor"
+                placeholderTextColor="#8aa0a7"
+                secureTextEntry
+                style={styles.input}
+                value={tripCode}
+              />
 
               {loadingSeed ? (
                 <View style={styles.inlineRow}>
                   <ActivityIndicator color="#0b6b78" />
-                  <Text style={styles.inlineText}>Cargando viajes...</Text>
-                </View>
-              ) : null}
-
-              {selectedTrip ? (
-                <View style={styles.softPanel}>
-                  <Text style={styles.softPanelLabel}>Viaje seleccionado</Text>
-                  <Text style={styles.softPanelTitle}>{selectedTrip.name}</Text>
-                  <Text style={styles.softPanelBody}>
-                    Codigo {selectedTrip.code} · {selectedTrip.origin} a {selectedTrip.destination}
-                  </Text>
+                  <Text style={styles.inlineText}>Conectando con el servidor...</Text>
                 </View>
               ) : null}
 
@@ -470,7 +476,8 @@ export function MobileClientApp() {
               />
 
               <Text style={styles.helperText}>
-                Toca un viaje de la lista y la app usa ese codigo automaticamente.
+                El codigo no aparece en la APK. Solo entra quien lo recibe del propietario
+                o del monitor del viaje.
               </Text>
 
               {selectedUser ? (
@@ -521,14 +528,19 @@ export function MobileClientApp() {
                     <Text style={styles.miniStatValue}>{roleLabel(session.user.role)}</Text>
                   </View>
                   <View style={styles.miniStat}>
-                    <Text style={styles.miniStatLabel}>Trip code</Text>
-                    <Text style={styles.miniStatValue}>{session.trip.code}</Text>
-                  </View>
-                  <View style={styles.miniStat}>
                     <Text style={styles.miniStatLabel}>Checkpoint</Text>
                     <Text style={styles.miniStatValue}>{session.trip.checkpoint}</Text>
                   </View>
                 </View>
+
+                {session.trip.alternativeCheckpoints.length > 0 ? (
+                  <View style={styles.softPanel}>
+                    <Text style={styles.softPanelLabel}>Paradas operativas</Text>
+                    <Text style={styles.softPanelBody}>
+                      {session.trip.alternativeCheckpoints.join(" · ")}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.card}>
@@ -552,6 +564,24 @@ export function MobileClientApp() {
                   </Text>
                 </View>
 
+                <View style={styles.switchRow}>
+                  <View style={styles.flexOne}>
+                    <Text style={styles.switchTitle}>Autoenvio cada 30 segundos</Text>
+                    <Text style={styles.switchBody}>
+                      Puedes pausarlo si el coordinador te pide ahorrar bateria.
+                    </Text>
+                  </View>
+                  <Switch
+                    onValueChange={(value) => {
+                      setAutoSharing(value);
+                      setFeedback(null);
+                    }}
+                    thumbColor={autoSharing ? "#0b6b78" : "#f4f8f8"}
+                    trackColor={{ false: "#d7e4e4", true: "#7bd0d8" }}
+                    value={autoSharing}
+                  />
+                </View>
+
                 <View style={styles.actionRow}>
                   <Pressable
                     disabled={syncingLocation}
@@ -563,27 +593,45 @@ export function MobileClientApp() {
                     </Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => {
-                      setAutoSharing((current) => !current);
-                      setFeedback(null);
-                    }}
+                    disabled={refreshing}
+                    onPress={() => void refreshDashboard()}
                     style={[styles.secondaryButton, styles.actionButtonTight]}
                   >
                     <Text style={styles.secondaryButtonText}>
-                      {autoSharing ? "Pausar auto" : "Activar auto"}
+                      {refreshing ? "Actualizando..." : "Refrescar"}
                     </Text>
                   </Pressable>
                 </View>
+              </View>
 
-                <Pressable
-                  disabled={refreshing}
-                  onPress={() => void refreshDashboard()}
-                  style={styles.ghostButton}
-                >
-                  <Text style={styles.ghostButtonText}>
-                    {refreshing ? "Actualizando..." : "Refrescar monitor"}
-                  </Text>
-                </Pressable>
+              <View style={styles.emergencyCard}>
+                <Text style={styles.emergencyEyebrow}>Emergencia</Text>
+                <Text style={styles.emergencyTitle}>Accidente o pedido 911</Text>
+                <Text style={styles.emergencyBody}>
+                  Este aviso comparte tu ultima ubicacion y alerta al resto de la flota
+                  para pedir ayuda inmediata.
+                </Text>
+
+                <View style={styles.emergencyRow}>
+                  <Pressable
+                    disabled={sendingEmergency}
+                    onPress={() => void handleEmergencyAlert("accident")}
+                    style={[styles.emergencyButton, styles.accidentButton]}
+                  >
+                    <Text style={styles.emergencyButtonText}>
+                      {sendingEmergency ? "Enviando..." : "Accidente"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={sendingEmergency}
+                    onPress={() => void handleEmergencyAlert("sos")}
+                    style={[styles.emergencyButton, styles.sosButton]}
+                  >
+                    <Text style={styles.emergencyButtonText}>
+                      {sendingEmergency ? "Enviando..." : "911 / Ayuda"}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
 
               {dashboard && prioritizedMembers ? (
@@ -607,7 +655,31 @@ export function MobileClientApp() {
                         {dashboard.summary.latestUpdateSeconds}s
                       </Text>
                     </View>
+                    <View style={styles.summaryCard}>
+                      <Text style={styles.summaryLabel}>Alertas</Text>
+                      <Text style={styles.summaryValue}>
+                        {dashboard.summary.activeEmergencyAlerts}
+                      </Text>
+                    </View>
                   </View>
+
+                  {dashboard.activeEmergencyAlerts.length > 0 ? (
+                    <View style={styles.emergencyListCard}>
+                      <Text style={styles.cardEyebrow}>Flota alertada</Text>
+                      <Text style={styles.cardTitle}>Pedidos de ayuda activos</Text>
+                      <View style={styles.stack}>
+                        {dashboard.activeEmergencyAlerts.map((alert) => (
+                          <View key={alert.id} style={styles.emergencyItem}>
+                            <Text style={styles.emergencyItemTitle}>
+                              {alert.type === "accident" ? "Accidente" : "911"} · {alert.userName}
+                            </Text>
+                            <Text style={styles.emergencyItemBody}>{alert.message}</Text>
+                            <Text style={styles.emergencyItemMeta}>{alert.userPhone}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
 
                   <View style={styles.card}>
                     <Text style={styles.cardEyebrow}>Vista compartida del viaje</Text>
@@ -659,6 +731,16 @@ export function MobileClientApp() {
                                 </Text>
                               </View>
                             </View>
+
+                            {member.emergencyAlert ? (
+                              <View style={styles.memberEmergencyBanner}>
+                                <Text style={styles.memberEmergencyText}>
+                                  {member.emergencyAlert.type === "accident"
+                                    ? "Accidente reportado"
+                                    : "Pedido 911 activo"}
+                                </Text>
+                              </View>
+                            ) : null}
 
                             <View style={styles.detailRow}>
                               <View style={styles.detailCard}>
@@ -715,6 +797,16 @@ export function MobileClientApp() {
                                 </Text>
                               </View>
                             </View>
+
+                            {member.emergencyAlert ? (
+                              <View style={styles.memberEmergencyBanner}>
+                                <Text style={styles.memberEmergencyText}>
+                                  {member.emergencyAlert.type === "accident"
+                                    ? "Accidente reportado"
+                                    : "Pedido 911 activo"}
+                                </Text>
+                              </View>
+                            ) : null}
 
                             <View style={styles.detailRow}>
                               <View style={styles.detailCard}>
@@ -834,6 +926,62 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 14 },
     shadowRadius: 32,
     elevation: 4,
+  },
+  emergencyCard: {
+    backgroundColor: "#fff3f1",
+    borderRadius: 26,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#f4c7c0",
+    shadowColor: "#a93426",
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 28,
+    elevation: 3,
+  },
+  emergencyEyebrow: {
+    color: "#b23a3a",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1.6,
+  },
+  emergencyTitle: {
+    marginTop: 8,
+    color: "#7e241d",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "700",
+  },
+  emergencyBody: {
+    marginTop: 12,
+    color: "#8a4942",
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  emergencyRow: {
+    marginTop: 18,
+    flexDirection: "row",
+    gap: 12,
+  },
+  emergencyButton: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accidentButton: {
+    backgroundColor: "#c23b22",
+  },
+  sosButton: {
+    backgroundColor: "#931f33",
+  },
+  emergencyButtonText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
   },
   cardEyebrow: {
     color: "rgba(11,107,120,0.72)",
@@ -1033,6 +1181,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
+  switchRow: {
+    marginTop: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  switchTitle: {
+    color: "#12343f",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  switchBody: {
+    marginTop: 4,
+    color: "#61757d",
+    fontSize: 13,
+    lineHeight: 19,
+  },
   actionButtonTight: {
     marginTop: 0,
   },
@@ -1094,6 +1259,41 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: "700",
   },
+  emergencyListCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 18,
+    shadowColor: "#12343f",
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 14 },
+    shadowRadius: 32,
+    elevation: 4,
+  },
+  emergencyItem: {
+    borderRadius: 16,
+    backgroundColor: "#fff4f1",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#ffd4cb",
+  },
+  emergencyItemTitle: {
+    color: "#8f2a1f",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  emergencyItemBody: {
+    marginTop: 6,
+    color: "#7d4e48",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emergencyItemMeta: {
+    marginTop: 6,
+    color: "#a45e54",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   stack: {
     marginTop: 16,
     gap: 14,
@@ -1140,6 +1340,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: "#61757d",
     fontSize: 14,
+  },
+  memberEmergencyBanner: {
+    marginTop: 12,
+    borderRadius: 14,
+    backgroundColor: "#ffe3de",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  memberEmergencyText: {
+    color: "#9d2d22",
+    fontSize: 13,
+    fontWeight: "700",
   },
   statusChip: {
     borderRadius: 999,

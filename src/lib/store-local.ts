@@ -2,10 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   ConnectionStatus,
+  CreateEmergencyAlertInput,
   CreateLocationInput,
   CreateSessionInput,
   CreateTripInput,
+  EmergencyAlert,
   LocationRecord,
+  MobileTripSummary,
   Session,
   TravelerSnapshot,
   Trip,
@@ -19,6 +22,7 @@ interface PersistedState {
   trips: Trip[];
   tripMembers: TripMember[];
   locations: LocationRecord[];
+  emergencyAlerts: EmergencyAlert[];
   sessions: Session[];
 }
 
@@ -62,6 +66,7 @@ const seedState: PersistedState = {
       origin: "San Salvador de Jujuy",
       destination: "Humahuaca",
       checkpoint: "Termas de Reyes",
+      alternativeCheckpoints: ["Yala", "Volcan"],
     },
   ],
   tripMembers: [
@@ -148,6 +153,7 @@ const seedState: PersistedState = {
       source: "mobile",
     },
   ],
+  emergencyAlerts: [],
   sessions: [],
 };
 
@@ -174,7 +180,16 @@ async function ensureStorage() {
 async function readState() {
   await ensureStorage();
   const contents = await readFile(storageFile, "utf8");
-  return JSON.parse(contents) as PersistedState;
+  const parsed = JSON.parse(contents) as Partial<PersistedState>;
+
+  return {
+    users: parsed.users ?? [],
+    trips: parsed.trips ?? [],
+    tripMembers: parsed.tripMembers ?? [],
+    locations: parsed.locations ?? [],
+    emergencyAlerts: parsed.emergencyAlerts ?? [],
+    sessions: parsed.sessions ?? [],
+  };
 }
 
 async function writeState(state: PersistedState) {
@@ -189,6 +204,17 @@ function getLatestLocation(state: PersistedState, userId: string, tripId: string
   return state.locations
     .filter((item) => item.userId === userId && item.tripId === tripId)
     .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0] ?? null;
+}
+
+function getActiveEmergencyAlert(state: PersistedState, userId: string, tripId: string) {
+  return (
+    state.emergencyAlerts
+      .filter(
+        (item) =>
+          item.userId === userId && item.tripId === tripId && item.status === "active",
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+  );
 }
 
 function deriveConnectionStatus(location: LocationRecord | null): ConnectionStatus {
@@ -228,11 +254,24 @@ function buildTravelerSnapshot(state: PersistedState, member: TripMember): Trave
     phone: user.phone,
     connectionStatus: deriveConnectionStatus(latestLocation),
     latestLocation,
+    emergencyAlert: getActiveEmergencyAlert(state, user.id, member.tripId),
   };
 }
 
 function buildRecentEvents(state: PersistedState, tripId: string) {
-  return state.tripMembers
+  const emergencyEvents = state.emergencyAlerts
+    .filter((item) => item.tripId === tripId && item.status === "active")
+    .map((alert) => {
+      const user = state.users.find((item) => item.id === alert.userId);
+      const time = new Date(alert.updatedAt).toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      return `${time} - ALERTA ${alert.type === "accident" ? "ACCIDENTE" : "911"} de ${user?.name ?? "usuario"}: ${alert.message}.`;
+    });
+
+  const locationEvents = state.tripMembers
     .filter((member) => member.tripId === tripId)
     .map((member) => {
       const snapshot = buildTravelerSnapshot(state, member);
@@ -251,11 +290,35 @@ function buildRecentEvents(state: PersistedState, tripId: string) {
     })
     .sort()
     .reverse();
+
+  return [...emergencyEvents, ...locationEvents].slice(0, 12);
+}
+
+function normalizeTrip(trip: Trip): Trip {
+  return {
+    ...trip,
+    alternativeCheckpoints: trip.alternativeCheckpoints ?? [],
+  };
+}
+
+function toMobileTripSummary(trip: Trip): MobileTripSummary {
+  const normalizedTrip = normalizeTrip(trip);
+
+  return {
+    id: normalizedTrip.id,
+    name: normalizedTrip.name,
+    status: normalizedTrip.status,
+    startsAt: normalizedTrip.startsAt,
+    origin: normalizedTrip.origin,
+    destination: normalizedTrip.destination,
+    checkpoint: normalizedTrip.checkpoint,
+    alternativeCheckpoints: normalizedTrip.alternativeCheckpoints,
+  };
 }
 
 export async function createSession(input: CreateSessionInput) {
   const state = await readState();
-  const trip = state.trips.find((item) => item.code === input.tripCode);
+  const tripMatch = state.trips.find((item) => item.code === input.tripCode);
   const normalizedUserName = input.userName?.trim().toLocaleLowerCase("es-AR");
   const normalizedUserPhone = input.userPhone?.trim();
   let user = input.userId
@@ -266,9 +329,11 @@ export async function createSession(input: CreateSessionInput) {
         )
       : null;
 
-  if (!trip) {
+  if (!tripMatch) {
     return null;
   }
+
+  const trip = normalizeTrip(tripMatch);
 
   if (!user && input.userName?.trim()) {
     user = {
@@ -344,16 +409,19 @@ export async function getTripsForUser(userId: string) {
 
   return memberships
     .map((membership) => state.trips.find((trip) => trip.id === membership.tripId))
-    .filter((trip): trip is Trip => Boolean(trip));
+    .filter((trip): trip is Trip => Boolean(trip))
+    .map(normalizeTrip);
 }
 
 export async function getTripDashboard(tripId: string): Promise<TripDashboard | null> {
   const state = await readState();
-  const trip = state.trips.find((item) => item.id === tripId);
+  const tripMatch = state.trips.find((item) => item.id === tripId);
 
-  if (!trip) {
+  if (!tripMatch) {
     return null;
   }
+
+  const trip = normalizeTrip(tripMatch);
 
   const members = state.tripMembers
     .filter((item) => item.tripId === tripId)
@@ -369,9 +437,23 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
     .map((member) => member.latestLocation?.batteryLevel)
     .filter((value): value is number => typeof value === "number");
 
+  const activeEmergencyAlerts = state.emergencyAlerts
+    .filter((item) => item.tripId === tripId && item.status === "active")
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map((alert) => {
+      const user = state.users.find((item) => item.id === alert.userId);
+
+      return {
+        ...alert,
+        userName: user?.name ?? "usuario",
+        userPhone: user?.phone ?? "Sin telefono",
+      };
+    });
+
   return {
     trip,
     members,
+    activeEmergencyAlerts,
     recentEvents: buildRecentEvents(state, tripId).slice(0, 6),
     summary: {
       activeTravelers: members.filter((item) => item.connectionStatus === "online").length,
@@ -383,9 +465,10 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
       latestUpdateSeconds: latestTimestamps[0]
         ? Math.max(
             0,
-            Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
-          )
+          Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
+        )
         : 0,
+      activeEmergencyAlerts: activeEmergencyAlerts.length,
     },
   };
 }
@@ -432,22 +515,56 @@ export async function createLocation(sessionToken: string, input: CreateLocation
   return location;
 }
 
+export async function createEmergencyAlert(
+  sessionToken: string,
+  input: CreateEmergencyAlertInput,
+) {
+  const state = await readState();
+  const session = state.sessions.find((item) => item.token === sessionToken);
+
+  if (!session) {
+    return null;
+  }
+
+  const existingAlert = getActiveEmergencyAlert(state, session.userId, session.tripId);
+  const message =
+    input.message?.trim() ||
+    (input.type === "accident"
+      ? "Accidente reportado desde la app."
+      : "Pedido urgente de ayuda a la flota.");
+
+  if (existingAlert) {
+    existingAlert.type = input.type;
+    existingAlert.message = message;
+    existingAlert.updatedAt = nowIso();
+    await writeState(state);
+    return existingAlert;
+  }
+
+  const alert: EmergencyAlert = {
+    id: id("alert"),
+    tripId: session.tripId,
+    userId: session.userId,
+    type: input.type,
+    message,
+    status: "active",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    resolvedAt: null,
+  };
+
+  state.emergencyAlerts.push(alert);
+  await writeState(state);
+
+  return alert;
+}
+
 export async function getSeedCredentials() {
   const state = await readState();
   return {
-    tripCode: state.trips[0]?.code ?? "",
     trips: state.trips
       .sort((a, b) => b.startsAt.localeCompare(a.startsAt))
-      .map((trip) => ({
-        id: trip.id,
-        name: trip.name,
-        code: trip.code,
-        origin: trip.origin,
-        destination: trip.destination,
-        checkpoint: trip.checkpoint,
-        status: trip.status,
-        startsAt: trip.startsAt,
-      })),
+      .map(toMobileTripSummary),
     demoUsers: state.users.map((user) => ({
       id: user.id,
       name: user.name,
@@ -458,7 +575,9 @@ export async function getSeedCredentials() {
 
 export async function getAllTrips() {
   const state = await readState();
-  return state.trips.sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+  return state.trips
+    .sort((a, b) => b.startsAt.localeCompare(a.startsAt))
+    .map(normalizeTrip);
 }
 
 export async function createTrip(input: CreateTripInput) {
@@ -486,10 +605,32 @@ export async function createTrip(input: CreateTripInput) {
     origin: input.origin.trim(),
     destination: input.destination.trim(),
     checkpoint: input.checkpoint.trim(),
+    alternativeCheckpoints: (input.alternativeCheckpoints ?? [])
+      .map((item) => item.trim())
+      .filter(Boolean),
   };
 
   state.trips.push(trip);
   await writeState(state);
 
   return { trip };
+}
+
+export async function deleteTrip(tripId: string) {
+  const state = await readState();
+  const existingTrip = state.trips.find((trip) => trip.id === tripId);
+
+  if (!existingTrip) {
+    return { error: "trip-not-found" as const };
+  }
+
+  state.trips = state.trips.filter((trip) => trip.id !== tripId);
+  state.tripMembers = state.tripMembers.filter((member) => member.tripId !== tripId);
+  state.locations = state.locations.filter((location) => location.tripId !== tripId);
+  state.sessions = state.sessions.filter((session) => session.tripId !== tripId);
+  state.emergencyAlerts = state.emergencyAlerts.filter((alert) => alert.tripId !== tripId);
+
+  await writeState(state);
+
+  return { tripId };
 }

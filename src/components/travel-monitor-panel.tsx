@@ -16,6 +16,7 @@ type TravelerView = {
   latitude: number | null;
   longitude: number | null;
   accuracy: number | null;
+  emergencyAlertLabel: string | null;
   lastUpdateLabel: string;
 };
 
@@ -24,6 +25,15 @@ type TravelMonitorPanelProps = {
   origin: string;
   destination: string;
   checkpoint: string;
+  alternativeCheckpoints: string[];
+  activeEmergencyAlerts: Array<{
+    id: string;
+    userName: string;
+    userPhone: string;
+    type: "accident" | "sos";
+    message: string;
+    updatedAt: string;
+  }>;
 };
 
 export function TravelMonitorPanel({
@@ -31,6 +41,8 @@ export function TravelMonitorPanel({
   origin,
   destination,
   checkpoint,
+  alternativeCheckpoints,
+  activeEmergencyAlerts,
 }: TravelMonitorPanelProps) {
   const [viewMode, setViewMode] = useState<"group" | "individual">("group");
   const [selectedTravelerName, setSelectedTravelerName] = useState(
@@ -47,6 +59,35 @@ export function TravelMonitorPanel({
 
   return (
     <section className="grid gap-6">
+      {activeEmergencyAlerts.length > 0 ? (
+        <section className="rounded-[2rem] border border-rose-200 bg-[linear-gradient(135deg,#fff4f2,#ffe8e3)] p-6 shadow-[0_18px_50px_rgba(161,47,25,.12)]">
+          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-rose-700">
+            Emergencia activa
+          </p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {activeEmergencyAlerts.map((alert) => (
+              <article
+                key={alert.id}
+                className="rounded-[1.35rem] border border-rose-200 bg-white/85 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-semibold text-rose-800">
+                      {alert.type === "accident" ? "Accidente" : "911"} · {alert.userName}
+                    </p>
+                    <p className="text-sm text-rose-700">{alert.userPhone}</p>
+                  </div>
+                  <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+                    Ayuda
+                  </span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--ink)]">{alert.message}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="rounded-[2rem] border border-[rgba(6,39,47,.08)] bg-white/92 p-6 shadow-[0_24px_60px_rgba(31,60,68,.12)]">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -61,6 +102,23 @@ export function TravelMonitorPanel({
             <div className="rounded-full border border-[rgba(6,39,47,.08)] px-4 py-2 text-sm text-[var(--muted)]">
               Siguiente control: {checkpoint}
             </div>
+            {alternativeCheckpoints.length > 0 ? (
+              <div className="rounded-[1.25rem] border border-[rgba(6,39,47,.08)] bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--ink)]">
+                <p className="font-semibold text-[var(--accent-strong)]">
+                  Paradas operativas
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {alternativeCheckpoints.map((stop) => (
+                    <span
+                      key={stop}
+                      className="rounded-full bg-white px-3 py-1 text-xs font-medium text-[var(--ink)]"
+                    >
+                      {stop}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="inline-flex rounded-full border border-[rgba(6,39,47,.08)] bg-white p-1 shadow-sm">
               <button
                 type="button"
@@ -176,6 +234,11 @@ export function TravelMonitorPanel({
                     {traveler.status}
                   </div>
                 </div>
+                {traveler.emergencyAlertLabel ? (
+                  <div className="mt-3 rounded-2xl bg-rose-100 px-3 py-2 text-sm font-semibold text-rose-700">
+                    {traveler.emergencyAlertLabel}
+                  </div>
+                ) : null}
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-white/70">
                   <div>
                     <p className="text-white/50">Ubicacion</p>
@@ -212,6 +275,11 @@ export function TravelMonitorPanel({
                 </div>
               </div>
               <div className="mt-5 space-y-4 text-sm text-white/75">
+                {selectedTraveler.emergencyAlertLabel ? (
+                  <div className="rounded-2xl bg-rose-100 px-4 py-3 text-rose-700">
+                    <p className="font-semibold">{selectedTraveler.emergencyAlertLabel}</p>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-white/50">Ultimo reporte</p>
                   <p className="mt-1 text-white">{selectedTraveler.lastUpdateLabel}</p>

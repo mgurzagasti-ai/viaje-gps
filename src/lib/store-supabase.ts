@@ -1,9 +1,12 @@
 import {
   ConnectionStatus,
+  CreateEmergencyAlertInput,
   CreateLocationInput,
   CreateSessionInput,
   CreateTripInput,
+  EmergencyAlert,
   LocationRecord,
+  MobileTripSummary,
   Session,
   TravelerSnapshot,
   Trip,
@@ -28,6 +31,7 @@ type DbTrip = {
   origin: string;
   destination: string;
   checkpoint: string;
+  alternative_checkpoints: string[] | null;
 };
 
 type DbTripMember = {
@@ -50,6 +54,18 @@ type DbLocation = {
   signal_strength: LocationRecord["signalStrength"];
   recorded_at: string;
   source: LocationRecord["source"];
+};
+
+type DbEmergencyAlert = {
+  id: string;
+  trip_id: string;
+  user_id: string;
+  type: EmergencyAlert["type"];
+  message: string;
+  status: EmergencyAlert["status"];
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 };
 
 type DbSession = {
@@ -104,6 +120,7 @@ function toTrip(row: DbTrip): Trip {
     origin: row.origin,
     destination: row.destination,
     checkpoint: row.checkpoint,
+    alternativeCheckpoints: row.alternative_checkpoints ?? [],
   };
 }
 
@@ -120,6 +137,20 @@ function toLocation(row: DbLocation): LocationRecord {
     signalStrength: row.signal_strength,
     recordedAt: row.recorded_at,
     source: row.source,
+  };
+}
+
+function toEmergencyAlert(row: DbEmergencyAlert): EmergencyAlert {
+  return {
+    id: row.id,
+    tripId: row.trip_id,
+    userId: row.user_id,
+    type: row.type,
+    message: row.message,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    resolvedAt: row.resolved_at,
   };
 }
 
@@ -144,6 +175,18 @@ function toTripMember(row: DbTripMember): TripMember {
 
 function encodeIn(values: string[]) {
   return `(${values.map((value) => `"${value}"`).join(",")})`;
+}
+
+function isMissingSchemaError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('"code":"42703"') ||
+    error.message.includes('"code":"42P01"') ||
+    error.message.includes("does not exist")
+  );
 }
 
 async function supabaseRequest<T>(
@@ -193,9 +236,26 @@ async function getTripsByIds(tripIds: string[]) {
     return [];
   }
 
-  return supabaseRequest<DbTrip[]>(
-    `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
-  );
+  try {
+    return await supabaseRequest<DbTrip[]>(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const rows = await supabaseRequest<
+      Array<Omit<DbTrip, "alternative_checkpoints">>
+    >(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
 }
 
 async function getLatestLocationsForTrip(tripId: string) {
@@ -214,10 +274,37 @@ async function getLatestLocationsForTrip(tripId: string) {
   return latestByUser;
 }
 
+async function getActiveEmergencyAlertsForTrip(tripId: string) {
+  let rows: DbEmergencyAlert[];
+
+  try {
+    rows = await supabaseRequest<DbEmergencyAlert[]>(
+      `emergency_alerts?select=id,trip_id,user_id,type,message,status,created_at,updated_at,resolved_at&trip_id=eq.${encodeURIComponent(tripId)}&status=eq.active&order=updated_at.desc`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    return new Map<string, EmergencyAlert>();
+  }
+
+  const latestByUser = new Map<string, EmergencyAlert>();
+
+  for (const row of rows) {
+    if (!latestByUser.has(row.user_id)) {
+      latestByUser.set(row.user_id, toEmergencyAlert(row));
+    }
+  }
+
+  return latestByUser;
+}
+
 function buildTravelerSnapshot(
   user: User,
   member: TripMember,
   latestLocation: LocationRecord | null,
+  emergencyAlert: EmergencyAlert | null,
 ): TravelerSnapshot {
   return {
     userId: user.id,
@@ -226,11 +313,29 @@ function buildTravelerSnapshot(
     phone: user.phone,
     connectionStatus: deriveConnectionStatus(latestLocation),
     latestLocation,
+    emergencyAlert,
   };
 }
 
-function buildRecentEvents(members: TravelerSnapshot[]) {
-  return members
+function buildRecentEvents(
+  members: TravelerSnapshot[],
+  activeEmergencyAlerts: Array<
+    EmergencyAlert & {
+      userName: string;
+      userPhone: string;
+    }
+  >,
+) {
+  const emergencyEvents = activeEmergencyAlerts.map((alert) => {
+    const time = new Date(alert.updatedAt).toLocaleTimeString("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    return `${time} - ALERTA ${alert.type === "accident" ? "ACCIDENTE" : "911"} de ${alert.userName}: ${alert.message}.`;
+  });
+
+  const locationEvents = members
     .map((snapshot) => {
       const time = snapshot.latestLocation
         ? new Date(snapshot.latestLocation.recordedAt).toLocaleTimeString("es-AR", {
@@ -247,12 +352,47 @@ function buildRecentEvents(members: TravelerSnapshot[]) {
     })
     .sort()
     .reverse();
+
+  return [...emergencyEvents, ...locationEvents];
+}
+
+function toMobileTripSummary(trip: Trip): MobileTripSummary {
+  return {
+    id: trip.id,
+    name: trip.name,
+    status: trip.status,
+    startsAt: trip.startsAt,
+    origin: trip.origin,
+    destination: trip.destination,
+    checkpoint: trip.checkpoint,
+    alternativeCheckpoints: trip.alternativeCheckpoints ?? [],
+  };
 }
 
 async function getTripByCode(code: string) {
-  const rows = await supabaseRequest<DbTrip[]>(
-    `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&code=eq.${encodeURIComponent(code)}&limit=1`,
-  );
+  let rows: DbTrip[];
+
+  try {
+    rows = await supabaseRequest<DbTrip[]>(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&code=eq.${encodeURIComponent(code)}&limit=1`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const fallbackRows = await supabaseRequest<
+      Array<Omit<DbTrip, "alternative_checkpoints">>
+    >(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&code=eq.${encodeURIComponent(code)}&limit=1`,
+    );
+
+    rows = fallbackRows.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
+
   return rows[0] ? toTrip(rows[0]) : null;
 }
 
@@ -409,9 +549,28 @@ export async function getTripsForUser(userId: string) {
 }
 
 export async function getTripDashboard(tripId: string): Promise<TripDashboard | null> {
-  const trips = await supabaseRequest<DbTrip[]>(
-    `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=eq.${encodeURIComponent(tripId)}&limit=1`,
-  );
+  let trips: DbTrip[];
+
+  try {
+    trips = await supabaseRequest<DbTrip[]>(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const fallbackTrips = await supabaseRequest<
+      Array<Omit<DbTrip, "alternative_checkpoints">>
+    >(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+    );
+
+    trips = fallbackTrips.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
 
   const tripRow = trips[0];
 
@@ -426,6 +585,7 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
   const users = await getUsersByIds(membershipRows.map((membership) => membership.user_id));
   const userMap = new Map(users.map((user) => [user.id, user]));
   const latestLocations = await getLatestLocationsForTrip(tripId);
+  const activeEmergencyAlertsByUser = await getActiveEmergencyAlertsForTrip(tripId);
 
   const members = membershipRows
     .map(toTripMember)
@@ -444,9 +604,20 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
         },
         member,
         latestLocations.get(member.userId) ?? null,
+        activeEmergencyAlertsByUser.get(member.userId) ?? null,
       );
     })
     .filter((member): member is TravelerSnapshot => Boolean(member));
+
+  const activeEmergencyAlerts = [...activeEmergencyAlertsByUser.values()].map((alert) => {
+    const user = userMap.get(alert.userId);
+
+    return {
+      ...alert,
+      userName: user?.name ?? "usuario",
+      userPhone: user?.phone ?? "Sin telefono",
+    };
+  });
 
   const latestTimestamps = members
     .map((member) => member.latestLocation?.recordedAt)
@@ -461,7 +632,8 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
   return {
     trip: toTrip(tripRow),
     members,
-    recentEvents: buildRecentEvents(members).slice(0, 6),
+    activeEmergencyAlerts,
+    recentEvents: buildRecentEvents(members, activeEmergencyAlerts).slice(0, 6),
     summary: {
       activeTravelers: members.filter((item) => item.connectionStatus === "online").length,
       delayedTravelers: members.filter((item) => item.connectionStatus === "delayed").length,
@@ -472,9 +644,10 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
       latestUpdateSeconds: latestTimestamps[0]
         ? Math.max(
             0,
-            Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
-          )
+          Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
+        )
         : 0,
+      activeEmergencyAlerts: activeEmergencyAlerts.length,
     },
   };
 }
@@ -522,22 +695,82 @@ export async function createLocation(sessionToken: string, input: CreateLocation
   return createdLocations[0] ? toLocation(createdLocations[0]) : null;
 }
 
+export async function createEmergencyAlert(
+  sessionToken: string,
+  input: CreateEmergencyAlertInput,
+) {
+  const session = await getSession(sessionToken);
+
+  if (!session) {
+    return null;
+  }
+
+  let existingAlerts: DbEmergencyAlert[];
+
+  try {
+    existingAlerts = await supabaseRequest<DbEmergencyAlert[]>(
+      `emergency_alerts?select=id,trip_id,user_id,type,message,status,created_at,updated_at,resolved_at&trip_id=eq.${encodeURIComponent(session.tripId)}&user_id=eq.${encodeURIComponent(session.userId)}&status=eq.active&limit=1`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    throw new Error(
+      "La tabla de emergencias todavia no existe en Supabase. Ejecuta el SQL nuevo de docs/supabase-schema.sql.",
+    );
+  }
+
+  const message =
+    input.message?.trim() ||
+    (input.type === "accident"
+      ? "Accidente reportado desde la app."
+      : "Pedido urgente de ayuda a la flota.");
+
+  if (existingAlerts[0]) {
+    const updatedAlerts = await supabaseRequest<DbEmergencyAlert[]>(
+      `emergency_alerts?id=eq.${encodeURIComponent(existingAlerts[0].id)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          type: input.type,
+          message,
+          updated_at: nowIso(),
+        }),
+        prefer: "return=representation",
+      },
+    );
+
+    return updatedAlerts[0] ? toEmergencyAlert(updatedAlerts[0]) : null;
+  }
+
+  const createdAlerts = await supabaseRequest<DbEmergencyAlert[]>("emergency_alerts", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        id: id("alert"),
+        trip_id: session.tripId,
+        user_id: session.userId,
+        type: input.type,
+        message,
+        status: "active",
+        created_at: nowIso(),
+        updated_at: nowIso(),
+        resolved_at: null,
+      },
+    ]),
+    prefer: "return=representation",
+  });
+
+  return createdAlerts[0] ? toEmergencyAlert(createdAlerts[0]) : null;
+}
+
 export async function getSeedCredentials() {
   const trips = await getAllTrips();
   const users = await supabaseRequest<DbUser[]>("users?select=id,name,phone,role");
 
   return {
-    tripCode: trips[0]?.code ?? "",
-    trips: trips.map((trip) => ({
-      id: trip.id,
-      name: trip.name,
-      code: trip.code,
-      origin: trip.origin,
-      destination: trip.destination,
-      checkpoint: trip.checkpoint,
-      status: trip.status,
-      startsAt: trip.startsAt,
-    })),
+    trips: trips.map(toMobileTripSummary),
     demoUsers: users.map((user) => ({
       id: user.id,
       name: user.name,
@@ -547,9 +780,29 @@ export async function getSeedCredentials() {
 }
 
 export async function getAllTrips() {
-  const rows = await supabaseRequest<DbTrip[]>(
-    "trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&order=starts_at.desc",
-  );
+  let rows: DbTrip[];
+
+  try {
+    rows = await supabaseRequest<DbTrip[]>(
+      "trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&order=starts_at.desc",
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const fallbackRows = await supabaseRequest<
+      Array<Omit<DbTrip, "alternative_checkpoints">>
+    >(
+      "trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&order=starts_at.desc",
+    );
+
+    rows = fallbackRows.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
+
   return rows.map(toTrip);
 }
 
@@ -568,26 +821,97 @@ export async function createTrip(input: CreateTripInput) {
     return { error: "duplicate-code" as const };
   }
 
-  const createdTrips = await supabaseRequest<DbTrip[]>("trips", {
-    method: "POST",
-    body: JSON.stringify([
+  const payload = {
+    id: id("trip"),
+    name: input.name.trim(),
+    code: normalizedCode,
+    status: "active",
+    starts_at: input.startsAt?.trim()
+      ? new Date(input.startsAt).toISOString()
+      : nowIso(),
+    origin: input.origin.trim(),
+    destination: input.destination.trim(),
+    checkpoint: input.checkpoint.trim(),
+    alternative_checkpoints: (input.alternativeCheckpoints ?? [])
+      .map((item) => item.trim())
+      .filter(Boolean),
+  };
+
+  let createdTrips: DbTrip[];
+
+  try {
+    createdTrips = await supabaseRequest<DbTrip[]>("trips", {
+      method: "POST",
+      body: JSON.stringify([payload]),
+      prefer: "return=representation",
+    });
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const fallbackTrips = await supabaseRequest<Array<Omit<DbTrip, "alternative_checkpoints">>>(
+      "trips",
       {
-        id: id("trip"),
-        name: input.name.trim(),
-        code: normalizedCode,
-        status: "active",
-        starts_at: input.startsAt?.trim()
-          ? new Date(input.startsAt).toISOString()
-          : nowIso(),
-        origin: input.origin.trim(),
-        destination: input.destination.trim(),
-        checkpoint: input.checkpoint.trim(),
+        method: "POST",
+        body: JSON.stringify([
+          {
+            id: payload.id,
+            name: payload.name,
+            code: payload.code,
+            status: payload.status,
+            starts_at: payload.starts_at,
+            origin: payload.origin,
+            destination: payload.destination,
+            checkpoint: payload.checkpoint,
+          },
+        ]),
+        prefer: "return=representation",
       },
-    ]),
-    prefer: "return=representation",
-  });
+    );
+
+    createdTrips = fallbackTrips.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
 
   return { trip: toTrip(createdTrips[0]) };
+}
+
+export async function deleteTrip(tripId: string) {
+  let existingTrips: DbTrip[];
+
+  try {
+    existingTrips = await supabaseRequest<DbTrip[]>(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) {
+      throw error;
+    }
+
+    const fallbackTrips = await supabaseRequest<
+      Array<Omit<DbTrip, "alternative_checkpoints">>
+    >(
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+    );
+
+    existingTrips = fallbackTrips.map((row) => ({
+      ...row,
+      alternative_checkpoints: [],
+    }));
+  }
+
+  if (!existingTrips[0]) {
+    return { error: "trip-not-found" as const };
+  }
+
+  await supabaseRequest<void>(`trips?id=eq.${encodeURIComponent(tripId)}`, {
+    method: "DELETE",
+  });
+
+  return { tripId };
 }
 
 export function isSupabaseReady() {

@@ -1,7 +1,9 @@
 import {
+  createEmergencyAlert as createEmergencyAlertLocal,
   createLocation as createLocationLocal,
   createSession as createSessionLocal,
   createTrip as createTripLocal,
+  deleteTrip as deleteTripLocal,
   getAllTrips as getAllTripsLocal,
   getSeedCredentials as getSeedCredentialsLocal,
   getSession as getSessionLocal,
@@ -11,9 +13,11 @@ import {
   getTripsForUser as getTripsForUserLocal,
 } from "./store-local";
 import {
+  createEmergencyAlert as createEmergencyAlertSupabase,
   createLocation as createLocationSupabase,
   createSession as createSessionSupabase,
   createTrip as createTripSupabase,
+  deleteTrip as deleteTripSupabase,
   getAllTrips as getAllTripsSupabase,
   getSeedCredentials as getSeedCredentialsSupabase,
   getSession as getSessionSupabase,
@@ -64,6 +68,14 @@ export async function createLocation(...args: Parameters<typeof createLocationLo
     : createLocationLocal(...args);
 }
 
+export async function createEmergencyAlert(
+  ...args: Parameters<typeof createEmergencyAlertLocal>
+) {
+  return isSupabaseReady()
+    ? createEmergencyAlertSupabase(...args)
+    : createEmergencyAlertLocal(...args);
+}
+
 export async function getSeedCredentials(...args: Parameters<typeof getSeedCredentialsLocal>) {
   return isSupabaseReady()
     ? getSeedCredentialsSupabase(...args)
@@ -76,4 +88,8 @@ export async function getAllTrips(...args: Parameters<typeof getAllTripsLocal>) 
 
 export async function createTrip(...args: Parameters<typeof createTripLocal>) {
   return isSupabaseReady() ? createTripSupabase(...args) : createTripLocal(...args);
+}
+
+export async function deleteTrip(...args: Parameters<typeof deleteTripLocal>) {
+  return isSupabaseReady() ? deleteTripSupabase(...args) : deleteTripLocal(...args);
 }

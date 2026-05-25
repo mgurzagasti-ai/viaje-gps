@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
 import { createSession, getSeedCredentials } from "@/lib/store";
+import { Trip } from "@/lib/types";
+
+function toMobileTrip(trip: Trip) {
+  return {
+    id: trip.id,
+    name: trip.name,
+    status: trip.status,
+    startsAt: trip.startsAt,
+    origin: trip.origin,
+    destination: trip.destination,
+    checkpoint: trip.checkpoint,
+    alternativeCheckpoints: trip.alternativeCheckpoints,
+  };
+}
 
 export async function GET() {
   return NextResponse.json({
-    message: "Use POST to create a demo session.",
+    message: "Use POST to create a session with a trip code provided by the monitor.",
     seed: await getSeedCredentials(),
   });
 }
@@ -37,5 +51,11 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json(session, { status: 201 });
+  return NextResponse.json(
+    {
+      ...session,
+      trip: toMobileTrip(session.trip),
+    },
+    { status: 201 },
+  );
 }

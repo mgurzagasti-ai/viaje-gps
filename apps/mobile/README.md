@@ -54,3 +54,24 @@ Esta fase todavia usa:
 - almacenamiento persistente con `Supabase`
 - login real por usuario
 - historial de recorrido y alertas push
+
+## APK privada con EAS Build
+
+1. iniciar sesion en Expo:
+
+```bash
+npx eas-cli login
+```
+
+2. generar la APK interna desde `apps/mobile`:
+
+```bash
+npx eas-cli build --platform android --profile preview
+```
+
+3. cuando termine, Expo entrega una URL para descargar e instalar la APK.
+
+Perfiles configurados en `eas.json`:
+
+- `preview`: APK privada instalable
+- `production`: AAB para Play Store

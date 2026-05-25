@@ -2,8 +2,9 @@ import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MonitorAutoRefresh } from "@/components/monitor-auto-refresh";
+import { TripCreationForm } from "@/components/trip-creation-form";
 import { TravelMonitorPanel } from "@/components/travel-monitor-panel";
-import { createTrip, getAllTrips, getSeedCredentials, getTripDashboard } from "@/lib/store";
+import { createTrip, deleteTrip, getAllTrips, getTripDashboard } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,10 @@ async function createTripAction(formData: FormData) {
   const origin = String(formData.get("origin") ?? "").trim();
   const destination = String(formData.get("destination") ?? "").trim();
   const checkpoint = String(formData.get("checkpoint") ?? "").trim();
+  const alternativeCheckpoints = String(formData.get("alternativeCheckpoints") ?? "")
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
   const startsAt = String(formData.get("startsAt") ?? "").trim();
 
   if (!name || !code || !origin || !destination || !checkpoint) {
@@ -27,6 +32,7 @@ async function createTripAction(formData: FormData) {
     origin,
     destination,
     checkpoint,
+    alternativeCheckpoints,
     startsAt,
   });
 
@@ -36,6 +42,32 @@ async function createTripAction(formData: FormData) {
 
   revalidatePath("/");
   redirect(`/?tripId=${result.trip.id}`);
+}
+
+async function deleteTripAction(formData: FormData) {
+  "use server";
+
+  const tripId = String(formData.get("tripId") ?? "").trim();
+
+  if (!tripId) {
+    redirect("/?error=trip-not-found");
+  }
+
+  const trips = await getAllTrips();
+  const remainingTrips = trips.filter((trip) => trip.id !== tripId);
+  const result = await deleteTrip(tripId);
+
+  if ("error" in result) {
+    redirect("/?error=trip-not-found");
+  }
+
+  revalidatePath("/");
+
+  if (remainingTrips[0]) {
+    redirect(`/?tripId=${remainingTrips[0].id}`);
+  }
+
+  redirect("/");
 }
 
 type HomeProps = {
@@ -50,15 +82,15 @@ export default async function Home({ searchParams }: HomeProps) {
   const trips = await getAllTrips();
   const selectedTripId = params?.tripId ?? trips[0]?.id ?? null;
   const dashboard = selectedTripId ? await getTripDashboard(selectedTripId) : null;
-  const seed = await getSeedCredentials();
-
   const errorMessage =
     params?.error === "duplicate-code"
       ? "Ya existe un viaje con ese codigo."
-      : params?.error === "missing-trip-fields"
+        : params?.error === "missing-trip-fields"
         ? "Completa todos los campos del viaje antes de guardarlo."
         : params?.error === "missing-code"
           ? "El codigo del viaje es obligatorio."
+          : params?.error === "trip-not-found"
+            ? "No se encontro el viaje que querias borrar."
           : null;
 
   const travelers =
@@ -82,7 +114,9 @@ export default async function Home({ searchParams }: HomeProps) {
             : "Baja";
 
       const accent =
-        member.connectionStatus === "online"
+        member.emergencyAlert
+          ? "from-rose-300 to-red-500"
+          : member.connectionStatus === "online"
           ? "from-emerald-400 to-teal-500"
           : member.connectionStatus === "delayed"
             ? "from-amber-300 to-orange-500"
@@ -104,6 +138,11 @@ export default async function Home({ searchParams }: HomeProps) {
         latitude: member.latestLocation?.latitude ?? null,
         longitude: member.latestLocation?.longitude ?? null,
         accuracy: member.latestLocation?.accuracy ?? null,
+        emergencyAlertLabel: member.emergencyAlert
+          ? member.emergencyAlert.type === "accident"
+            ? "Accidente reportado"
+            : "Pedido 911 activo"
+          : null,
         lastUpdateLabel: member.latestLocation
           ? new Date(member.latestLocation.recordedAt).toLocaleTimeString("es-AR", {
               hour: "2-digit",
@@ -137,71 +176,7 @@ export default async function Home({ searchParams }: HomeProps) {
             </div>
           ) : null}
 
-          <form action={createTripAction} className="mt-6 grid gap-4">
-            <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-              Nombre del viaje
-              <input
-                name="name"
-                required
-                className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 outline-none transition focus:border-[var(--accent-strong)]"
-                placeholder="Ej. Viaje Humahuaca Tarde"
-              />
-            </label>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-                Codigo del viaje
-                <input
-                  name="code"
-                  required
-                  className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 uppercase outline-none transition focus:border-[var(--accent-strong)]"
-                  placeholder="Ej. HUMA-2026"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-                Inicio programado
-                <input
-                  name="startsAt"
-                  type="datetime-local"
-                  className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 outline-none transition focus:border-[var(--accent-strong)]"
-                />
-              </label>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-                Origen
-                <input
-                  name="origin"
-                  required
-                  className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 outline-none transition focus:border-[var(--accent-strong)]"
-                  placeholder="Ej. San Salvador de Jujuy"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-                Destino
-                <input
-                  name="destination"
-                  required
-                  className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 outline-none transition focus:border-[var(--accent-strong)]"
-                  placeholder="Ej. Humahuaca"
-                />
-              </label>
-            </div>
-            <label className="grid gap-2 text-sm font-medium text-[var(--ink)]">
-              Checkpoint principal
-              <input
-                name="checkpoint"
-                required
-                className="rounded-2xl border border-[rgba(6,39,47,.12)] bg-[var(--surface-soft)] px-4 py-3 outline-none transition focus:border-[var(--accent-strong)]"
-                placeholder="Ej. Termas de Reyes"
-              />
-            </label>
-            <button
-              type="submit"
-              className="mt-2 inline-flex items-center justify-center rounded-2xl bg-[var(--accent-strong)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-            >
-              Guardar viaje
-            </button>
-          </form>
+          <TripCreationForm action={createTripAction} />
         </section>
 
         <section className="rounded-[2rem] border border-[rgba(6,39,47,.08)] bg-white/92 p-6 shadow-[0_24px_60px_rgba(31,60,68,.12)]">
@@ -225,9 +200,8 @@ export default async function Home({ searchParams }: HomeProps) {
                 const active = trip.id === selectedTripId;
 
                 return (
-                  <Link
+                  <div
                     key={trip.id}
-                    href={`/?tripId=${trip.id}`}
                     className={`rounded-[1.6rem] border px-5 py-4 transition ${
                       active
                         ? "border-transparent bg-[var(--surface-strong)] text-white shadow-[0_20px_40px_rgba(13,86,102,.22)]"
@@ -235,23 +209,40 @@ export default async function Home({ searchParams }: HomeProps) {
                     }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-semibold">{trip.name}</p>
-                        <p className={active ? "text-white/70" : "text-[var(--muted)]"}>
-                          {trip.origin} a {trip.destination}
-                        </p>
+                      <Link href={`/?tripId=${trip.id}`} className="min-w-0 flex-1">
+                        <div>
+                          <p className="text-lg font-semibold">{trip.name}</p>
+                          <p className={active ? "text-white/70" : "text-[var(--muted)]"}>
+                            {trip.origin} a {trip.destination}
+                          </p>
+                        </div>
+                      </Link>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            active
+                              ? "bg-white/12 text-white"
+                              : "bg-white text-[var(--accent-strong)]"
+                          }`}
+                        >
+                          {trip.code}
+                        </span>
+                        <form action={deleteTripAction}>
+                          <input type="hidden" name="tripId" value={trip.id} />
+                          <button
+                            type="submit"
+                            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                              active
+                                ? "border border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                : "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                            }`}
+                          >
+                            Borrar
+                          </button>
+                        </form>
                       </div>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          active
-                            ? "bg-white/12 text-white"
-                            : "bg-white text-[var(--accent-strong)]"
-                        }`}
-                      >
-                        {trip.code}
-                      </span>
                     </div>
-                  </Link>
+                  </div>
                 );
               })
             ) : (
@@ -313,6 +304,15 @@ export default async function Home({ searchParams }: HomeProps) {
                     Referencia inicial para futuras alertas de ahorro de energia.
                   </p>
                 </article>
+                <article className="rounded-3xl border border-white/15 bg-[rgba(123,22,22,.42)] p-5 backdrop-blur">
+                  <p className="text-sm text-white/70">Alertas de ayuda</p>
+                  <p className="mt-3 text-3xl font-semibold">
+                    {dashboard.summary.activeEmergencyAlerts}
+                  </p>
+                  <p className="mt-2 text-sm text-white/75">
+                    Avisos de accidente o 911 activos en la flota.
+                  </p>
+                </article>
               </div>
             </div>
 
@@ -357,7 +357,7 @@ export default async function Home({ searchParams }: HomeProps) {
                     </p>
                   </div>
                   <div className="rounded-2xl border border-[rgba(6,39,47,.08)] bg-white p-4">
-                    <p className="text-[var(--muted)]">Trip code</p>
+                    <p className="text-[var(--muted)]">Codigo interno</p>
                     <p className="mt-2 text-2xl font-semibold text-[var(--ink)]">
                       {dashboard.trip.code}
                     </p>
@@ -372,6 +372,8 @@ export default async function Home({ searchParams }: HomeProps) {
             origin={dashboard.trip.origin}
             destination={dashboard.trip.destination}
             checkpoint={dashboard.trip.checkpoint}
+            alternativeCheckpoints={dashboard.trip.alternativeCheckpoints}
+            activeEmergencyAlerts={dashboard.activeEmergencyAlerts}
           />
 
           <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -387,9 +389,9 @@ export default async function Home({ searchParams }: HomeProps) {
                 </h2>
                 <div className="mt-5 space-y-3">
                   {[
-                    `POST /api/auth/session con tripCode ${seed.tripCode} y login real por nombre.`,
-                    "GET /api/trips para listar viajes del usuario autenticado.",
-                    "GET /api/trips/:tripId para obtener dashboard y miembros reales.",
+                    "POST /api/auth/session con tripCode entregado por el monitor y login real por nombre.",
+                    "GET /api/trips para listar solo los viajes del usuario autenticado.",
+                    "GET /api/trips/:tripId para obtener dashboard sin exponer el codigo del viaje.",
                     "POST /api/trips/:tripId/locations para enviar GPS desde la app Expo.",
                   ].map((item) => (
                     <div

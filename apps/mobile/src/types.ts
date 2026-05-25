@@ -3,14 +3,13 @@ export type UserRole = "coordinator" | "driver" | "support" | "traveler";
 export interface DemoSeedResponse {
   message: string;
   seed: {
-    tripCode: string;
     trips: Array<{
       id: string;
       name: string;
-      code: string;
       origin: string;
       destination: string;
       checkpoint: string;
+      alternativeCheckpoints: string[];
       status: "planned" | "active" | "paused" | "completed";
       startsAt: string;
     }>;
@@ -33,23 +32,46 @@ export interface SessionResponse {
   trip: {
     id: string;
     name: string;
-    code: string;
     status: "planned" | "active" | "paused" | "completed";
     startsAt: string;
     origin: string;
     destination: string;
     checkpoint: string;
+    alternativeCheckpoints: string[];
   };
 }
 
 export interface DashboardResponse {
   trip: SessionResponse["trip"];
+  activeEmergencyAlerts: Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    userPhone: string;
+    type: "accident" | "sos";
+    message: string;
+    status: "active" | "resolved";
+    createdAt: string;
+    updatedAt: string;
+    resolvedAt: string | null;
+  }>;
   members: Array<{
     userId: string;
     name: string;
     role: UserRole;
     phone: string;
     connectionStatus: "online" | "delayed" | "offline";
+    emergencyAlert: {
+      id: string;
+      tripId: string;
+      userId: string;
+      type: "accident" | "sos";
+      message: string;
+      status: "active" | "resolved";
+      createdAt: string;
+      updatedAt: string;
+      resolvedAt: string | null;
+    } | null;
     latestLocation: {
       id: string;
       latitude: number;
@@ -67,7 +89,20 @@ export interface DashboardResponse {
     delayedTravelers: number;
     averageBattery: number;
     latestUpdateSeconds: number;
+    activeEmergencyAlerts: number;
   };
+}
+
+export interface EmergencyAlertResponse {
+  id: string;
+  tripId: string;
+  userId: string;
+  type: "accident" | "sos";
+  message: string;
+  status: "active" | "resolved";
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
 }
 
 export interface LocationPayload {

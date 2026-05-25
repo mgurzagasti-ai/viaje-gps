@@ -13,8 +13,12 @@ create table if not exists trips (
   starts_at timestamptz not null,
   origin text not null,
   destination text not null,
-  checkpoint text not null
+  checkpoint text not null,
+  alternative_checkpoints jsonb not null default '[]'::jsonb
 );
+
+alter table trips
+  add column if not exists alternative_checkpoints jsonb not null default '[]'::jsonb;
 
 create table if not exists trip_members (
   id text primary key,
@@ -47,6 +51,25 @@ create index if not exists locations_trip_recorded_at_idx
 create index if not exists locations_trip_user_recorded_at_idx
   on locations (trip_id, user_id, recorded_at desc);
 
+create table if not exists emergency_alerts (
+  id text primary key,
+  trip_id text not null references trips(id) on delete cascade,
+  user_id text not null references users(id) on delete cascade,
+  type text not null check (type in ('accident', 'sos')),
+  message text not null,
+  status text not null check (status in ('active', 'resolved')) default 'active',
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  resolved_at timestamptz
+);
+
+create index if not exists emergency_alerts_trip_status_updated_idx
+  on emergency_alerts (trip_id, status, updated_at desc);
+
+create unique index if not exists emergency_alerts_trip_user_active_idx
+  on emergency_alerts (trip_id, user_id, status)
+  where status = 'active';
+
 create table if not exists sessions (
   token text primary key,
   user_id text not null references users(id) on delete cascade,
@@ -65,7 +88,17 @@ values
   ('usr_bruno', 'Bruno Salas', '+54 388 455 1004', 'driver')
 on conflict (id) do nothing;
 
-insert into trips (id, name, code, status, starts_at, origin, destination, checkpoint)
+insert into trips (
+  id,
+  name,
+  code,
+  status,
+  starts_at,
+  origin,
+  destination,
+  checkpoint,
+  alternative_checkpoints
+)
 values
   (
     'trip_jujuy_001',
@@ -75,7 +108,8 @@ values
     '2026-05-18T17:30:00.000Z',
     'San Salvador de Jujuy',
     'Humahuaca',
-    'Termas de Reyes'
+    'Termas de Reyes',
+    '["Yala - descanso", "Volcan - agrupacion"]'::jsonb
   )
 on conflict (id) do nothing;
 
@@ -105,4 +139,29 @@ values
   ('loc_2', 'trip_jujuy_001', 'usr_martin', -24.121, -65.427, 9, 0, 65, 'medium', '2026-05-18T18:08:04.000Z', 'mobile'),
   ('loc_3', 'trip_jujuy_001', 'usr_camila', -24.045, -65.3921, 5, 38, 91, 'high', '2026-05-18T18:08:10.000Z', 'mobile'),
   ('loc_4', 'trip_jujuy_001', 'usr_bruno', -24.0902, -65.4782, 18, 12, 48, 'low', '2026-05-18T18:07:32.000Z', 'mobile')
+on conflict (id) do nothing;
+
+insert into emergency_alerts (
+  id,
+  trip_id,
+  user_id,
+  type,
+  message,
+  status,
+  created_at,
+  updated_at,
+  resolved_at
+)
+values
+  (
+    'alert_demo_1',
+    'trip_jujuy_001',
+    'usr_bruno',
+    'sos',
+    'Pedido urgente de ayuda a la flota.',
+    'active',
+    '2026-05-18T18:08:20.000Z',
+    '2026-05-18T18:08:20.000Z',
+    null
+  )
 on conflict (id) do nothing;

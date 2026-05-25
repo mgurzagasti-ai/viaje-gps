@@ -1,6 +1,7 @@
 import {
   DashboardResponse,
   DemoSeedResponse,
+  EmergencyAlertResponse,
   LocationPayload,
   SessionResponse,
 } from "./types";
@@ -10,7 +11,9 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+
+  const response = await fetch(`${normalizedBaseUrl}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -64,6 +67,24 @@ export function sendLocation(
   payload: LocationPayload,
 ) {
   return request(apiBaseUrl, `/api/trips/${tripId}/locations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function sendEmergencyAlert(
+  apiBaseUrl: string,
+  token: string,
+  tripId: string,
+  payload: {
+    type: "accident" | "sos";
+    message?: string;
+  },
+) {
+  return request<EmergencyAlertResponse>(apiBaseUrl, `/api/trips/${tripId}/emergency`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

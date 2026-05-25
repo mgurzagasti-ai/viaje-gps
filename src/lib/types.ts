@@ -20,6 +20,7 @@ export interface Trip {
   origin: string;
   destination: string;
   checkpoint: string;
+  alternativeCheckpoints: string[];
 }
 
 export interface TripMember {
@@ -44,6 +45,18 @@ export interface LocationRecord {
   source: "mobile";
 }
 
+export interface EmergencyAlert {
+  id: string;
+  tripId: string;
+  userId: string;
+  type: "accident" | "sos";
+  message: string;
+  status: "active" | "resolved";
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
 export interface Session {
   token: string;
   userId: string;
@@ -58,17 +71,25 @@ export interface TravelerSnapshot {
   phone: string;
   connectionStatus: ConnectionStatus;
   latestLocation: LocationRecord | null;
+  emergencyAlert: EmergencyAlert | null;
 }
 
 export interface TripDashboard {
   trip: Trip;
   members: TravelerSnapshot[];
+  activeEmergencyAlerts: Array<
+    EmergencyAlert & {
+      userName: string;
+      userPhone: string;
+    }
+  >;
   recentEvents: string[];
   summary: {
     activeTravelers: number;
     delayedTravelers: number;
     averageBattery: number;
     latestUpdateSeconds: number;
+    activeEmergencyAlerts: number;
   };
 }
 
@@ -77,6 +98,17 @@ export interface CreateSessionInput {
   userName?: string;
   userPhone?: string;
   tripCode: string;
+}
+
+export interface MobileTripSummary {
+  id: string;
+  name: string;
+  status: TripStatus;
+  startsAt: string;
+  origin: string;
+  destination: string;
+  checkpoint: string;
+  alternativeCheckpoints: string[];
 }
 
 export interface CreateLocationInput {
@@ -89,11 +121,17 @@ export interface CreateLocationInput {
   recordedAt?: string;
 }
 
+export interface CreateEmergencyAlertInput {
+  type: "accident" | "sos";
+  message?: string;
+}
+
 export interface CreateTripInput {
   name: string;
   code: string;
   origin: string;
   destination: string;
   checkpoint: string;
+  alternativeCheckpoints?: string[];
   startsAt?: string;
 }
