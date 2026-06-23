@@ -7,6 +7,8 @@ import {
   EmergencyAlert,
   LocationRecord,
   MobileTripSummary,
+  MonitorAccount,
+  MonitorAuthSession,
   Session,
   TravelerSnapshot,
   Trip,
@@ -14,12 +16,22 @@ import {
   TripMember,
   User,
 } from "./types";
+import { hashPassword, isPasswordHashed, verifyPassword } from "./passwords";
 
 type DbUser = {
   id: string;
   name: string;
   phone: string;
   role: User["role"];
+};
+
+type DbMonitorAccount = {
+  id: string;
+  name: string;
+  username: string;
+  password: string;
+  created_at: string;
+  auth_user_id: string | null;
 };
 
 type DbTrip = {
@@ -32,6 +44,7 @@ type DbTrip = {
   destination: string;
   checkpoint: string;
   alternative_checkpoints: string[] | null;
+  owner_monitor_id: string;
 };
 
 type DbTripMember = {
@@ -76,10 +89,11 @@ type DbSession = {
 };
 
 const supabaseUrl = process.env.SUPABASE_URL?.trim();
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ??
-  process.env.SUPABASE_ANON_KEY?.trim() ??
-  "";
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim() ?? "";
+const supabaseKey = supabaseServiceRoleKey || supabaseAnonKey;
+const monitorAuthEmailDomain =
+  process.env.MONITOR_AUTH_EMAIL_DOMAIN?.trim() || "monitors.viaje-gps.local";
 
 function nowIso() {
   return new Date().toISOString();
@@ -121,6 +135,18 @@ function toTrip(row: DbTrip): Trip {
     destination: row.destination,
     checkpoint: row.checkpoint,
     alternativeCheckpoints: row.alternative_checkpoints ?? [],
+    ownerMonitorId: row.owner_monitor_id,
+  };
+}
+
+function toMonitorAccount(row: DbMonitorAccount): MonitorAccount {
+  return {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    password: row.password,
+    createdAt: row.created_at,
+    authUserId: row.auth_user_id,
   };
 }
 
@@ -177,6 +203,10 @@ function encodeIn(values: string[]) {
   return `(${values.map((value) => `"${value}"`).join(",")})`;
 }
 
+function getMonitorAuthEmail(username: string) {
+  return `${username.trim().toLocaleLowerCase("en-US")}@${monitorAuthEmailDomain}`;
+}
+
 function isMissingSchemaError(error: unknown) {
   if (!(error instanceof Error)) {
     return false;
@@ -221,6 +251,42 @@ async function supabaseRequest<T>(
   return (await response.json()) as T;
 }
 
+async function supabaseAuthRequest<T>(
+  path: string,
+  init?: RequestInit & {
+    apiKey?: string;
+    bearerToken?: string;
+  },
+): Promise<T> {
+  if (!supabaseUrl) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const apiKey = init?.apiKey ?? supabaseAnonKey ?? supabaseServiceRoleKey;
+
+  if (!apiKey) {
+    throw new Error("Supabase auth is not configured.");
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: apiKey,
+      Authorization: `Bearer ${init?.bearerToken ?? apiKey}`,
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Supabase auth request failed for ${path}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 async function getUsersByIds(userIds: string[]) {
   if (userIds.length === 0) {
     return [];
@@ -231,6 +297,14 @@ async function getUsersByIds(userIds: string[]) {
   );
 }
 
+async function getMonitorAccountByUsername(username: string) {
+  const rows = await supabaseRequest<DbMonitorAccount[]>(
+    `monitor_accounts?select=id,name,username,password,created_at,auth_user_id&username=ilike.${encodeURIComponent(username)}&limit=1`,
+  );
+
+  return rows[0] ? toMonitorAccount(rows[0]) : null;
+}
+
 async function getTripsByIds(tripIds: string[]) {
   if (tripIds.length === 0) {
     return [];
@@ -238,7 +312,7 @@ async function getTripsByIds(tripIds: string[]) {
 
   try {
     return await supabaseRequest<DbTrip[]>(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints,owner_monitor_id&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
     );
   } catch (error) {
     if (!isMissingSchemaError(error)) {
@@ -248,7 +322,7 @@ async function getTripsByIds(tripIds: string[]) {
     const rows = await supabaseRequest<
       Array<Omit<DbTrip, "alternative_checkpoints">>
     >(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,owner_monitor_id&id=in.${encodeURIComponent(encodeIn(tripIds))}`,
     );
 
     return rows.map((row) => ({
@@ -374,7 +448,7 @@ async function getTripByCode(code: string) {
 
   try {
     rows = await supabaseRequest<DbTrip[]>(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&code=eq.${encodeURIComponent(code)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints,owner_monitor_id&code=eq.${encodeURIComponent(code)}&limit=1`,
     );
   } catch (error) {
     if (!isMissingSchemaError(error)) {
@@ -384,7 +458,7 @@ async function getTripByCode(code: string) {
     const fallbackRows = await supabaseRequest<
       Array<Omit<DbTrip, "alternative_checkpoints">>
     >(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&code=eq.${encodeURIComponent(code)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,owner_monitor_id&code=eq.${encodeURIComponent(code)}&limit=1`,
     );
 
     rows = fallbackRows.map((row) => ({
@@ -410,6 +484,208 @@ async function getUserByName(name: string) {
   );
 
   return rows[0] ?? null;
+}
+
+async function updateMonitorAccount(accountId: string, patch: Partial<DbMonitorAccount>) {
+  const updatedAccounts = await supabaseRequest<DbMonitorAccount[]>(
+    `monitor_accounts?id=eq.${encodeURIComponent(accountId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+      prefer: "return=representation",
+    },
+  );
+
+  return updatedAccounts[0] ? toMonitorAccount(updatedAccounts[0]) : null;
+}
+
+async function createSupabaseAuthMonitorUser(username: string, password: string) {
+  if (!supabaseServiceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required to create monitor auth users.");
+  }
+
+  const response = await supabaseAuthRequest<{
+    id: string;
+    email: string;
+  }>("admin/users", {
+    method: "POST",
+    apiKey: supabaseServiceRoleKey,
+    bearerToken: supabaseServiceRoleKey,
+    body: JSON.stringify({
+      email: getMonitorAuthEmail(username),
+      password,
+      email_confirm: true,
+      user_metadata: {
+        username,
+      },
+    }),
+  });
+
+  return response;
+}
+
+async function findSupabaseAuthMonitorUserId(username: string) {
+  if (!supabaseServiceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required to query monitor auth users.");
+  }
+
+  const response = await supabaseAuthRequest<{
+    users?: Array<{
+      id: string;
+      email?: string | null;
+    }>;
+  }>(`admin/users?email=${encodeURIComponent(getMonitorAuthEmail(username))}`, {
+    method: "GET",
+    apiKey: supabaseServiceRoleKey,
+    bearerToken: supabaseServiceRoleKey,
+  });
+
+  return response.users?.[0]?.id ?? null;
+}
+
+async function ensureSupabaseAuthMonitorUser(username: string, password: string) {
+  try {
+    return await createSupabaseAuthMonitorUser(username, password);
+  } catch (error) {
+    const existingUserId = await findSupabaseAuthMonitorUserId(username);
+
+    if (existingUserId) {
+      return {
+        id: existingUserId,
+        email: getMonitorAuthEmail(username),
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function signInMonitorAuth(
+  username: string,
+  password: string,
+): Promise<MonitorAuthSession> {
+  const response = await supabaseAuthRequest<{
+    access_token: string;
+    refresh_token: string;
+    expires_in?: number;
+  }>("token?grant_type=password", {
+    method: "POST",
+    apiKey: supabaseAnonKey || supabaseServiceRoleKey,
+    body: JSON.stringify({
+      email: getMonitorAuthEmail(username),
+      password,
+    }),
+  });
+
+  return {
+    accessToken: response.access_token,
+    refreshToken: response.refresh_token,
+    expiresAt:
+      typeof response.expires_in === "number"
+        ? new Date(Date.now() + response.expires_in * 1000).toISOString()
+        : null,
+  };
+}
+
+export async function authenticateMonitorAccount(username: string, password: string) {
+  const account = await getMonitorAccountByUsername(username.trim());
+
+  if (!account || !verifyPassword(password, account.password)) {
+    return null;
+  }
+
+  let nextAccount = account;
+
+  if (!account.authUserId) {
+    const authUser = await ensureSupabaseAuthMonitorUser(account.username, password);
+    nextAccount =
+      (await updateMonitorAccount(account.id, {
+        auth_user_id: authUser.id,
+        password: isPasswordHashed(account.password)
+          ? account.password
+          : hashPassword(password),
+      })) ?? {
+        ...account,
+        authUserId: authUser.id,
+        password: isPasswordHashed(account.password)
+          ? account.password
+          : hashPassword(password),
+      };
+  } else if (!isPasswordHashed(account.password)) {
+    nextAccount =
+      (await updateMonitorAccount(account.id, {
+        password: hashPassword(password),
+      })) ?? {
+        ...account,
+        password: hashPassword(password),
+      };
+  }
+
+  const authSession = await signInMonitorAuth(nextAccount.username, password);
+
+  return {
+    account: nextAccount,
+    authSession,
+  };
+}
+
+export async function createMonitorAccount(input: {
+  name: string;
+  username: string;
+  password: string;
+}) {
+  const username = input.username.trim();
+
+  if (!username) {
+    return { error: "missing-username" as const };
+  }
+
+  if (!input.password.trim()) {
+    return { error: "missing-password" as const };
+  }
+
+  if (await getMonitorAccountByUsername(username)) {
+    return { error: "duplicate-username" as const };
+  }
+
+  const createdAccounts = await supabaseRequest<DbMonitorAccount[]>("monitor_accounts", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        id: id("mon"),
+        name: input.name.trim() || username,
+        username,
+        password: hashPassword(input.password),
+        created_at: nowIso(),
+        auth_user_id: null,
+      },
+    ]),
+    prefer: "return=representation",
+  });
+
+  const createdAccount = toMonitorAccount(createdAccounts[0]);
+  const authUser = await ensureSupabaseAuthMonitorUser(username, input.password);
+  const linkedAccount =
+    (await updateMonitorAccount(createdAccount.id, {
+      auth_user_id: authUser.id,
+    })) ?? {
+      ...createdAccount,
+      authUserId: authUser.id,
+    };
+  const authSession = await signInMonitorAuth(username, input.password);
+
+  return {
+    account: linkedAccount,
+    authSession,
+  };
+}
+
+export async function getMonitorAccountById(monitorId: string) {
+  const rows = await supabaseRequest<DbMonitorAccount[]>(
+    `monitor_accounts?select=id,name,username,password,created_at,auth_user_id&id=eq.${encodeURIComponent(monitorId)}&limit=1`,
+  );
+
+  return rows[0] ? toMonitorAccount(rows[0]) : null;
 }
 
 export async function createSession(input: CreateSessionInput) {
@@ -548,12 +824,15 @@ export async function getTripsForUser(userId: string) {
   return trips.map(toTrip);
 }
 
-export async function getTripDashboard(tripId: string): Promise<TripDashboard | null> {
+export async function getTripDashboard(
+  tripId: string,
+  ownerMonitorId?: string,
+): Promise<TripDashboard | null> {
   let trips: DbTrip[];
 
   try {
     trips = await supabaseRequest<DbTrip[]>(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints,owner_monitor_id&id=eq.${encodeURIComponent(tripId)}&limit=1`,
     );
   } catch (error) {
     if (!isMissingSchemaError(error)) {
@@ -563,7 +842,7 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
     const fallbackTrips = await supabaseRequest<
       Array<Omit<DbTrip, "alternative_checkpoints">>
     >(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,owner_monitor_id&id=eq.${encodeURIComponent(tripId)}&limit=1`,
     );
 
     trips = fallbackTrips.map((row) => ({
@@ -575,6 +854,10 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
   const tripRow = trips[0];
 
   if (!tripRow) {
+    return null;
+  }
+
+  if (ownerMonitorId && tripRow.owner_monitor_id !== ownerMonitorId) {
     return null;
   }
 
@@ -765,7 +1048,7 @@ export async function createEmergencyAlert(
   return createdAlerts[0] ? toEmergencyAlert(createdAlerts[0]) : null;
 }
 
-export async function resolveEmergencyAlert(alertId: string) {
+export async function resolveEmergencyAlert(alertId: string, ownerMonitorId?: string) {
   let existingAlerts: DbEmergencyAlert[];
 
   try {
@@ -784,6 +1067,14 @@ export async function resolveEmergencyAlert(alertId: string) {
 
   if (!existingAlerts[0]) {
     return { error: "alert-not-found" as const };
+  }
+
+  if (ownerMonitorId) {
+    const trip = await getTripDashboard(existingAlerts[0].trip_id, ownerMonitorId);
+
+    if (!trip) {
+      return { error: "alert-not-found" as const };
+    }
   }
 
   const resolvedAt = nowIso();
@@ -805,11 +1096,9 @@ export async function resolveEmergencyAlert(alertId: string) {
 }
 
 export async function getSeedCredentials() {
-  const trips = await getAllTrips();
   const users = await supabaseRequest<DbUser[]>("users?select=id,name,phone,role");
 
   return {
-    trips: trips.map(toMobileTripSummary),
     demoUsers: users.map((user) => ({
       id: user.id,
       name: user.name,
@@ -818,12 +1107,15 @@ export async function getSeedCredentials() {
   };
 }
 
-export async function getAllTrips() {
+export async function getAllTrips(ownerMonitorId?: string) {
   let rows: DbTrip[];
+  const ownerFilter = ownerMonitorId
+    ? `&owner_monitor_id=eq.${encodeURIComponent(ownerMonitorId)}`
+    : "";
 
   try {
     rows = await supabaseRequest<DbTrip[]>(
-      "trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&order=starts_at.desc",
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints,owner_monitor_id&order=starts_at.desc${ownerFilter}`,
     );
   } catch (error) {
     if (!isMissingSchemaError(error)) {
@@ -833,7 +1125,7 @@ export async function getAllTrips() {
     const fallbackRows = await supabaseRequest<
       Array<Omit<DbTrip, "alternative_checkpoints">>
     >(
-      "trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&order=starts_at.desc",
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,owner_monitor_id&order=starts_at.desc${ownerFilter}`,
     );
 
     rows = fallbackRows.map((row) => ({
@@ -845,7 +1137,7 @@ export async function getAllTrips() {
   return rows.map(toTrip);
 }
 
-export async function createTrip(input: CreateTripInput) {
+export async function createTrip(input: CreateTripInput, ownerMonitorId: string) {
   const normalizedCode = input.code.trim().toLocaleUpperCase("es-AR");
 
   if (!normalizedCode) {
@@ -874,6 +1166,7 @@ export async function createTrip(input: CreateTripInput) {
     alternative_checkpoints: (input.alternativeCheckpoints ?? [])
       .map((item) => item.trim())
       .filter(Boolean),
+    owner_monitor_id: ownerMonitorId,
   };
 
   let createdTrips: DbTrip[];
@@ -903,6 +1196,7 @@ export async function createTrip(input: CreateTripInput) {
             origin: payload.origin,
             destination: payload.destination,
             checkpoint: payload.checkpoint,
+            owner_monitor_id: payload.owner_monitor_id,
           },
         ]),
         prefer: "return=representation",
@@ -918,12 +1212,12 @@ export async function createTrip(input: CreateTripInput) {
   return { trip: toTrip(createdTrips[0]) };
 }
 
-export async function deleteTrip(tripId: string) {
+export async function deleteTrip(tripId: string, ownerMonitorId?: string) {
   let existingTrips: DbTrip[];
 
   try {
     existingTrips = await supabaseRequest<DbTrip[]>(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,alternative_checkpoints,owner_monitor_id&id=eq.${encodeURIComponent(tripId)}&limit=1`,
     );
   } catch (error) {
     if (!isMissingSchemaError(error)) {
@@ -933,7 +1227,7 @@ export async function deleteTrip(tripId: string) {
     const fallbackTrips = await supabaseRequest<
       Array<Omit<DbTrip, "alternative_checkpoints">>
     >(
-      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint&id=eq.${encodeURIComponent(tripId)}&limit=1`,
+      `trips?select=id,name,code,status,starts_at,origin,destination,checkpoint,owner_monitor_id&id=eq.${encodeURIComponent(tripId)}&limit=1`,
     );
 
     existingTrips = fallbackTrips.map((row) => ({
@@ -943,6 +1237,10 @@ export async function deleteTrip(tripId: string) {
   }
 
   if (!existingTrips[0]) {
+    return { error: "trip-not-found" as const };
+  }
+
+  if (ownerMonitorId && existingTrips[0].owner_monitor_id !== ownerMonitorId) {
     return { error: "trip-not-found" as const };
   }
 

@@ -1,3 +1,15 @@
+create table if not exists monitor_accounts (
+  id text primary key,
+  name text not null,
+  username text not null unique,
+  password text not null,
+  created_at timestamptz not null,
+  auth_user_id uuid unique
+);
+
+alter table monitor_accounts
+  add column if not exists auth_user_id uuid unique;
+
 create table if not exists users (
   id text primary key,
   name text not null,
@@ -14,11 +26,15 @@ create table if not exists trips (
   origin text not null,
   destination text not null,
   checkpoint text not null,
+  owner_monitor_id text not null references monitor_accounts(id) on delete cascade,
   alternative_checkpoints jsonb not null default '[]'::jsonb
 );
 
 alter table trips
   add column if not exists alternative_checkpoints jsonb not null default '[]'::jsonb;
+
+alter table trips
+  add column if not exists owner_monitor_id text references monitor_accounts(id) on delete cascade;
 
 create table if not exists trip_members (
   id text primary key,
@@ -80,6 +96,16 @@ create table if not exists sessions (
 create unique index if not exists sessions_user_trip_idx
   on sessions (user_id, trip_id);
 
+insert into monitor_accounts (id, name, username, password, created_at)
+values
+  ('mon_default', 'Viaje GPS Demo', 'viaje-gps', 'viaje123', '2026-05-18T16:50:00.000Z')
+on conflict (id) do nothing;
+
+-- Nota:
+-- Las cuentas nuevas ya se guardan con hash scrypt desde la app.
+-- Si una cuenta vieja sigue en texto plano, se migra automaticamente al primer login exitoso.
+-- Si una cuenta todavia no tiene auth_user_id, se enlaza con Supabase Auth al primer login exitoso.
+
 insert into users (id, name, phone, role)
 values
   ('usr_lucia', 'Lucia Fernandez', '+54 388 455 1001', 'driver'),
@@ -97,6 +123,7 @@ insert into trips (
   origin,
   destination,
   checkpoint,
+  owner_monitor_id,
   alternative_checkpoints
 )
 values
@@ -109,6 +136,7 @@ values
     'San Salvador de Jujuy',
     'Humahuaca',
     'Termas de Reyes',
+    'mon_default',
     '["Yala - descanso", "Volcan - agrupacion"]'::jsonb
   )
 on conflict (id) do nothing;

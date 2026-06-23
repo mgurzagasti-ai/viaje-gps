@@ -11,7 +11,12 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const normalizedBaseUrl = apiBaseUrl.trim().replace(/\/+$/, "");
+  const rawBaseUrl = apiBaseUrl.trim();
+  const normalizedBaseUrl = (
+    rawBaseUrl.startsWith("http://") || rawBaseUrl.startsWith("https://")
+      ? rawBaseUrl
+      : `http://${rawBaseUrl}`
+  ).replace(/\/+$/, "");
 
   const response = await fetch(`${normalizedBaseUrl}${path}`, {
     ...options,

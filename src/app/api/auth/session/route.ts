@@ -17,7 +17,7 @@ function toMobileTrip(trip: Trip) {
 
 export async function GET() {
   return NextResponse.json({
-    message: "Use POST to create a session with a trip code provided by the monitor.",
+    message: "Use POST to create a session with a private trip code shared by the monitor.",
     seed: await getSeedCredentials(),
   });
 }

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { hashPassword, isPasswordHashed, verifyPassword } from "./passwords";
 import {
   ConnectionStatus,
   CreateEmergencyAlertInput,
@@ -9,6 +10,7 @@ import {
   EmergencyAlert,
   LocationRecord,
   MobileTripSummary,
+  MonitorAccount,
   Session,
   TravelerSnapshot,
   Trip,
@@ -18,6 +20,7 @@ import {
 } from "./types";
 
 interface PersistedState {
+  monitorAccounts: MonitorAccount[];
   users: User[];
   trips: Trip[];
   tripMembers: TripMember[];
@@ -30,6 +33,16 @@ const storageDir = path.join(process.cwd(), "data");
 const storageFile = path.join(storageDir, "tracker-store.json");
 
 const seedState: PersistedState = {
+  monitorAccounts: [
+    {
+      id: "mon_default",
+      name: "Viaje GPS Demo",
+      username: "viaje-gps",
+      password: "viaje123",
+      createdAt: "2026-05-18T16:50:00.000Z",
+      authUserId: null,
+    },
+  ],
   users: [
     {
       id: "usr_lucia",
@@ -67,6 +80,7 @@ const seedState: PersistedState = {
       destination: "Humahuaca",
       checkpoint: "Termas de Reyes",
       alternativeCheckpoints: ["Yala", "Volcan"],
+      ownerMonitorId: "mon_default",
     },
   ],
   tripMembers: [
@@ -167,6 +181,40 @@ function id(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normalizeMonitorAccount(account: MonitorAccount): MonitorAccount {
+  return {
+    ...account,
+    name: account.name?.trim() || account.username,
+    username: account.username.trim(),
+    password: account.password,
+    createdAt: account.createdAt || nowIso(),
+    authUserId: account.authUserId ?? null,
+  };
+}
+
+function normalizeTrip(trip: Trip): Trip {
+  return {
+    ...trip,
+    alternativeCheckpoints: trip.alternativeCheckpoints ?? [],
+    ownerMonitorId: trip.ownerMonitorId ?? "mon_default",
+  };
+}
+
+function normalizeState(parsed: Partial<PersistedState>): PersistedState {
+  return {
+    monitorAccounts:
+      parsed.monitorAccounts && parsed.monitorAccounts.length > 0
+        ? parsed.monitorAccounts.map(normalizeMonitorAccount)
+        : seedState.monitorAccounts.map(normalizeMonitorAccount),
+    users: parsed.users ?? [],
+    trips: (parsed.trips ?? []).map(normalizeTrip),
+    tripMembers: parsed.tripMembers ?? [],
+    locations: parsed.locations ?? [],
+    emergencyAlerts: parsed.emergencyAlerts ?? [],
+    sessions: parsed.sessions ?? [],
+  };
+}
+
 async function ensureStorage() {
   await mkdir(storageDir, { recursive: true });
 
@@ -182,14 +230,7 @@ async function readState() {
   const contents = await readFile(storageFile, "utf8");
   const parsed = JSON.parse(contents) as Partial<PersistedState>;
 
-  return {
-    users: parsed.users ?? [],
-    trips: parsed.trips ?? [],
-    tripMembers: parsed.tripMembers ?? [],
-    locations: parsed.locations ?? [],
-    emergencyAlerts: parsed.emergencyAlerts ?? [],
-    sessions: parsed.sessions ?? [],
-  };
+  return normalizeState(parsed);
 }
 
 async function writeState(state: PersistedState) {
@@ -198,6 +239,15 @@ async function writeState(state: PersistedState) {
     writeFile(storageFile, JSON.stringify(state, null, 2), "utf8"),
   );
   await writeQueue;
+}
+
+function findMonitorByUsername(state: PersistedState, username: string) {
+  const normalizedUsername = username.trim().toLocaleLowerCase("es-AR");
+  return (
+    state.monitorAccounts.find(
+      (item) => item.username.trim().toLocaleLowerCase("es-AR") === normalizedUsername,
+    ) ?? null
+  );
 }
 
 function getLatestLocation(state: PersistedState, userId: string, tripId: string) {
@@ -294,13 +344,6 @@ function buildRecentEvents(state: PersistedState, tripId: string) {
   return [...emergencyEvents, ...locationEvents].slice(0, 12);
 }
 
-function normalizeTrip(trip: Trip): Trip {
-  return {
-    ...trip,
-    alternativeCheckpoints: trip.alternativeCheckpoints ?? [],
-  };
-}
-
 function toMobileTripSummary(trip: Trip): MobileTripSummary {
   const normalizedTrip = normalizeTrip(trip);
 
@@ -314,6 +357,68 @@ function toMobileTripSummary(trip: Trip): MobileTripSummary {
     checkpoint: normalizedTrip.checkpoint,
     alternativeCheckpoints: normalizedTrip.alternativeCheckpoints,
   };
+}
+
+export async function authenticateMonitorAccount(username: string, password: string) {
+  const state = await readState();
+  const account = findMonitorByUsername(state, username);
+
+  if (!account || !verifyPassword(password, account.password)) {
+    return null;
+  }
+
+  if (!isPasswordHashed(account.password)) {
+    account.password = hashPassword(password);
+    await writeState(state);
+  }
+
+  return {
+    account,
+    authSession: null,
+  };
+}
+
+export async function createMonitorAccount(input: {
+  name: string;
+  username: string;
+  password: string;
+}) {
+  const state = await readState();
+  const username = input.username.trim();
+
+  if (!username) {
+    return { error: "missing-username" as const };
+  }
+
+  if (!input.password.trim()) {
+    return { error: "missing-password" as const };
+  }
+
+  if (findMonitorByUsername(state, username)) {
+    return { error: "duplicate-username" as const };
+  }
+
+  const account: MonitorAccount = {
+    id: id("mon"),
+    name: input.name.trim() || username,
+    username,
+    password: hashPassword(input.password),
+    createdAt: nowIso(),
+    authUserId: null,
+  };
+
+  state.monitorAccounts.push(account);
+  await writeState(state);
+
+  return {
+    account,
+    authSession: null,
+  };
+}
+
+export async function getMonitorAccountById(monitorId: string) {
+  const state = await readState();
+  return state.monitorAccounts.find((item) => item.id === monitorId) ?? null;
 }
 
 export async function createSession(input: CreateSessionInput) {
@@ -413,9 +518,14 @@ export async function getTripsForUser(userId: string) {
     .map(normalizeTrip);
 }
 
-export async function getTripDashboard(tripId: string): Promise<TripDashboard | null> {
+export async function getTripDashboard(
+  tripId: string,
+  ownerMonitorId?: string,
+): Promise<TripDashboard | null> {
   const state = await readState();
-  const tripMatch = state.trips.find((item) => item.id === tripId);
+  const tripMatch = state.trips.find(
+    (item) => item.id === tripId && (!ownerMonitorId || item.ownerMonitorId === ownerMonitorId),
+  );
 
   if (!tripMatch) {
     return null;
@@ -465,8 +575,8 @@ export async function getTripDashboard(tripId: string): Promise<TripDashboard | 
       latestUpdateSeconds: latestTimestamps[0]
         ? Math.max(
             0,
-          Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
-        )
+            Math.floor((Date.now() - new Date(latestTimestamps[0]).getTime()) / 1000),
+          )
         : 0,
       activeEmergencyAlerts: activeEmergencyAlerts.length,
     },
@@ -559,12 +669,20 @@ export async function createEmergencyAlert(
   return alert;
 }
 
-export async function resolveEmergencyAlert(alertId: string) {
+export async function resolveEmergencyAlert(alertId: string, ownerMonitorId?: string) {
   const state = await readState();
   const existingAlert = state.emergencyAlerts.find((alert) => alert.id === alertId);
 
   if (!existingAlert) {
     return { error: "alert-not-found" as const };
+  }
+
+  if (ownerMonitorId) {
+    const trip = state.trips.find((item) => item.id === existingAlert.tripId);
+
+    if (!trip || trip.ownerMonitorId !== ownerMonitorId) {
+      return { error: "alert-not-found" as const };
+    }
   }
 
   const resolvedAt = nowIso();
@@ -580,9 +698,6 @@ export async function resolveEmergencyAlert(alertId: string) {
 export async function getSeedCredentials() {
   const state = await readState();
   return {
-    trips: state.trips
-      .sort((a, b) => b.startsAt.localeCompare(a.startsAt))
-      .map(toMobileTripSummary),
     demoUsers: state.users.map((user) => ({
       id: user.id,
       name: user.name,
@@ -591,14 +706,15 @@ export async function getSeedCredentials() {
   };
 }
 
-export async function getAllTrips() {
+export async function getAllTrips(ownerMonitorId?: string) {
   const state = await readState();
   return state.trips
+    .filter((trip) => !ownerMonitorId || trip.ownerMonitorId === ownerMonitorId)
     .sort((a, b) => b.startsAt.localeCompare(a.startsAt))
     .map(normalizeTrip);
 }
 
-export async function createTrip(input: CreateTripInput) {
+export async function createTrip(input: CreateTripInput, ownerMonitorId: string) {
   const state = await readState();
   const normalizedCode = input.code.trim().toLocaleUpperCase("es-AR");
 
@@ -626,6 +742,7 @@ export async function createTrip(input: CreateTripInput) {
     alternativeCheckpoints: (input.alternativeCheckpoints ?? [])
       .map((item) => item.trim())
       .filter(Boolean),
+    ownerMonitorId,
   };
 
   state.trips.push(trip);
@@ -634,9 +751,11 @@ export async function createTrip(input: CreateTripInput) {
   return { trip };
 }
 
-export async function deleteTrip(tripId: string) {
+export async function deleteTrip(tripId: string, ownerMonitorId?: string) {
   const state = await readState();
-  const existingTrip = state.trips.find((trip) => trip.id === tripId);
+  const existingTrip = state.trips.find(
+    (trip) => trip.id === tripId && (!ownerMonitorId || trip.ownerMonitorId === ownerMonitorId),
+  );
 
   if (!existingTrip) {
     return { error: "trip-not-found" as const };
@@ -651,4 +770,8 @@ export async function deleteTrip(tripId: string) {
   await writeState(state);
 
   return { tripId };
+}
+
+export function getTripSummariesForSeed(trips: Trip[]) {
+  return trips.map(toMobileTripSummary);
 }

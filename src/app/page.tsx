@@ -8,8 +8,10 @@ import {
   authenticateMonitor,
   clearMonitorSession,
   createMonitorSession,
+  getAuthenticatedMonitor,
   getMonitorConfigStatus,
   isMonitorAuthenticated,
+  registerMonitor,
   requireMonitorAuthentication,
 } from "@/lib/monitor-auth";
 import {
@@ -25,7 +27,7 @@ export const dynamic = "force-dynamic";
 async function createTripAction(formData: FormData) {
   "use server";
 
-  await requireMonitorAuthentication();
+  const monitor = await requireMonitorAuthentication();
 
   const name = String(formData.get("name") ?? "").trim();
   const code = String(formData.get("code") ?? "").trim();
@@ -42,15 +44,18 @@ async function createTripAction(formData: FormData) {
     redirect("/?error=missing-trip-fields");
   }
 
-  const result = await createTrip({
-    name,
-    code,
-    origin,
-    destination,
-    checkpoint,
-    alternativeCheckpoints,
-    startsAt,
-  });
+  const result = await createTrip(
+    {
+      name,
+      code,
+      origin,
+      destination,
+      checkpoint,
+      alternativeCheckpoints,
+      startsAt,
+    },
+    monitor.id,
+  );
 
   if ("error" in result) {
     redirect(`/?error=${result.error}`);
@@ -63,7 +68,7 @@ async function createTripAction(formData: FormData) {
 async function deleteTripAction(formData: FormData) {
   "use server";
 
-  await requireMonitorAuthentication();
+  const monitor = await requireMonitorAuthentication();
 
   const tripId = String(formData.get("tripId") ?? "").trim();
 
@@ -71,9 +76,9 @@ async function deleteTripAction(formData: FormData) {
     redirect("/?error=trip-not-found");
   }
 
-  const trips = await getAllTrips();
+  const trips = await getAllTrips(monitor.id);
   const remainingTrips = trips.filter((trip) => trip.id !== tripId);
-  const result = await deleteTrip(tripId);
+  const result = await deleteTrip(tripId, monitor.id);
 
   if ("error" in result) {
     redirect("/?error=trip-not-found");
@@ -91,7 +96,7 @@ async function deleteTripAction(formData: FormData) {
 async function resolveEmergencyAlertAction(formData: FormData) {
   "use server";
 
-  await requireMonitorAuthentication();
+  const monitor = await requireMonitorAuthentication();
 
   const alertId = String(formData.get("alertId") ?? "").trim();
 
@@ -99,7 +104,7 @@ async function resolveEmergencyAlertAction(formData: FormData) {
     return;
   }
 
-  await resolveEmergencyAlert(alertId);
+  await resolveEmergencyAlert(alertId, monitor.id);
   revalidatePath("/");
 }
 
@@ -109,11 +114,34 @@ async function loginAction(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!(await authenticateMonitor(username, password))) {
+  const result = await authenticateMonitor(username, password);
+
+  if (!result) {
     redirect("/?error=invalid-login");
   }
 
-  await createMonitorSession();
+  await createMonitorSession(result.account, result.authSession);
+  redirect("/");
+}
+
+async function registerAction(formData: FormData) {
+  "use server";
+
+  const name = String(formData.get("name") ?? "").trim();
+  const username = String(formData.get("username") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+
+  const result = await registerMonitor({
+    name,
+    username,
+    password,
+  });
+
+  if ("error" in result) {
+    redirect(`/?error=${result.error}`);
+  }
+
+  await createMonitorSession(result.account, result.authSession);
   redirect("/");
 }
 
@@ -135,13 +163,22 @@ export default async function Home({ searchParams }: HomeProps) {
   const params = searchParams ? await searchParams : undefined;
   const monitorConfig = getMonitorConfigStatus();
   const isAuthorized = await isMonitorAuthenticated();
+  const monitor = isAuthorized ? await getAuthenticatedMonitor() : null;
 
   if (!isAuthorized) {
     const loginError =
       !monitorConfig.isConfigured && process.env.NODE_ENV === "production"
-        ? "Faltan variables del monitor en el servidor. Configura MONITOR_USERNAME, MONITOR_PASSWORD y MONITOR_SESSION_SECRET."
+        ? "Falta MONITOR_SESSION_SECRET en el servidor para proteger las sesiones."
         : params?.error === "invalid-login"
         ? "Usuario o contrasena incorrectos."
+        : params?.error === "duplicate-username"
+          ? "Ese usuario de monitor ya existe."
+          : params?.error === "missing-username"
+            ? "El usuario del monitor es obligatorio."
+            : params?.error === "missing-password"
+              ? "La contrasena del monitor es obligatoria."
+              : params?.error === "server-not-configured"
+                ? "El servidor necesita MONITOR_SESSION_SECRET antes de crear cuentas."
         : params?.error === "unauthorized"
           ? "Necesitas iniciar sesion para entrar al monitor."
           : null;
@@ -182,8 +219,8 @@ export default async function Home({ searchParams }: HomeProps) {
             </p>
             <h2 className="mt-2 text-2xl font-semibold">Credenciales del monitor</h2>
             <p className="mt-3 text-sm leading-6 text-white/75">
-              El acceso se valida en el servidor y la sesion queda guardada en una
-              cookie segura.
+              Cada monitor maneja sus propios viajes. El acceso se valida en el
+              servidor y la sesion queda guardada en una cookie segura.
             </p>
 
             {loginError ? (
@@ -223,15 +260,63 @@ export default async function Home({ searchParams }: HomeProps) {
                 Entrar al monitor
               </button>
             </form>
+
+            <div className="mt-6 border-t border-white/15 pt-5">
+              <p className="text-sm uppercase tracking-[0.28em] text-white/65">
+                Crear cuenta
+              </p>
+              <form action={registerAction} className="mt-4 grid gap-4">
+                <label className="grid gap-2 text-sm">
+                  <span className="font-medium text-white/78">Nombre</span>
+                  <input
+                    type="text"
+                    name="name"
+                    className="rounded-2xl border border-white/15 bg-white/92 px-4 py-3 text-[var(--ink)] outline-none transition placeholder:text-slate-400 focus:border-white/40 focus:bg-white"
+                    placeholder="Ej. Transporte Norte"
+                    required
+                  />
+                </label>
+                <label className="grid gap-2 text-sm">
+                  <span className="font-medium text-white/78">Usuario</span>
+                  <input
+                    type="text"
+                    name="username"
+                    autoComplete="username"
+                    className="rounded-2xl border border-white/15 bg-white/92 px-4 py-3 text-[var(--ink)] outline-none transition placeholder:text-slate-400 focus:border-white/40 focus:bg-white"
+                    placeholder="tu-empresa"
+                    required
+                  />
+                </label>
+                <label className="grid gap-2 text-sm">
+                  <span className="font-medium text-white/78">Contrasena</span>
+                  <input
+                    type="password"
+                    name="password"
+                    autoComplete="new-password"
+                    className="rounded-2xl border border-white/15 bg-white/92 px-4 py-3 text-[var(--ink)] outline-none transition placeholder:text-slate-400 focus:border-white/40 focus:bg-white"
+                    placeholder="Crea una contrasena"
+                    required
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={!monitorConfig.isConfigured && process.env.NODE_ENV === "production"}
+                  className="rounded-2xl border border-white/25 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
+                >
+                  Crear monitor independiente
+                </button>
+              </form>
+            </div>
           </div>
         </section>
       </main>
     );
   }
 
-  const trips = await getAllTrips();
+  const trips = await getAllTrips(monitor?.id);
   const selectedTripId = params?.tripId ?? trips[0]?.id ?? null;
-  const dashboard = selectedTripId ? await getTripDashboard(selectedTripId) : null;
+  const dashboard =
+    selectedTripId && monitor ? await getTripDashboard(selectedTripId, monitor.id) : null;
   const errorMessage =
     params?.error === "duplicate-code"
       ? "Ya existe un viaje con ese codigo."
@@ -323,7 +408,7 @@ export default async function Home({ searchParams }: HomeProps) {
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/78 sm:text-base">
               Seguimiento visual del convoy, alertas activas y control operativo desde
-              una sola pantalla.
+              una sola pantalla para {monitor?.name ?? "tu cuenta"}.
             </p>
           </div>
           <div className="grid gap-2 rounded-[1.5rem] border border-white/15 bg-white/10 px-4 py-4 text-center text-sm backdrop-blur">

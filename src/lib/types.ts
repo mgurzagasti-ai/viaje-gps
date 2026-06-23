@@ -11,6 +11,26 @@ export interface User {
   role: UserRole;
 }
 
+export interface MonitorAccount {
+  id: string;
+  name: string;
+  username: string;
+  password: string;
+  createdAt: string;
+  authUserId?: string | null;
+}
+
+export interface MonitorAuthSession {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string | null;
+}
+
+export interface MonitorAuthenticationResult {
+  account: MonitorAccount;
+  authSession?: MonitorAuthSession | null;
+}
+
 export interface Trip {
   id: string;
   name: string;
@@ -21,6 +41,7 @@ export interface Trip {
   destination: string;
   checkpoint: string;
   alternativeCheckpoints: string[];
+  ownerMonitorId: string;
 }
 
 export interface TripMember {

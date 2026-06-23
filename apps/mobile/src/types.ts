@@ -3,16 +3,6 @@ export type UserRole = "coordinator" | "driver" | "support" | "traveler";
 export interface DemoSeedResponse {
   message: string;
   seed: {
-    trips: Array<{
-      id: string;
-      name: string;
-      origin: string;
-      destination: string;
-      checkpoint: string;
-      alternativeCheckpoints: string[];
-      status: "planned" | "active" | "paused" | "completed";
-      startsAt: string;
-    }>;
     demoUsers: Array<{
       id: string;
       name: string;

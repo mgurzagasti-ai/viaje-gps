@@ -9,6 +9,7 @@
       "**/*"
     ],
     "ios": {
+      "bundleIdentifier": "com.viajegps.mobile",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "La app necesita tu ubicacion para compartir tu posicion durante el viaje.",
@@ -16,6 +17,7 @@
       }
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#0b3a47"
       },
