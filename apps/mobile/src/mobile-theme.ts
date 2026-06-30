@@ -1,0 +1,123 @@
+import { StyleSheet } from "react-native";
+
+export const colors = {
+  background: "#07141b",
+  backgroundAlt: "#0d2029",
+  surface: "#10242f",
+  surfaceRaised: "#16313f",
+  surfaceMuted: "#1c3a48",
+  surfaceSoft: "#d7e2e8",
+  text: "#f5fbff",
+  textMuted: "#93abb7",
+  textDark: "#11242d",
+  accent: "#29b6c9",
+  accentStrong: "#0f8da2",
+  accentWarm: "#ff9b54",
+  success: "#29c27f",
+  warning: "#ffb84d",
+  danger: "#ff6b6b",
+  border: "rgba(255,255,255,0.08)",
+  borderStrong: "rgba(255,255,255,0.14)",
+};
+
+export const appStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  contentScreen: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+  },
+  scrollContent: {
+    paddingBottom: 128,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 18,
+  },
+  sectionSpacing: {
+    marginTop: 16,
+  },
+  eyebrow: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  title: {
+    marginTop: 8,
+    color: colors.text,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
+  },
+  body: {
+    marginTop: 10,
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  pill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  buttonPrimary: {
+    borderRadius: 18,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonPrimaryText: {
+    color: colors.textDark,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  buttonSecondary: {
+    borderRadius: 18,
+    backgroundColor: colors.surfaceRaised,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonSecondaryText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  input: {
+    marginTop: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.backgroundAlt,
+    color: colors.text,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  label: {
+    marginTop: 16,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  helper: {
+    marginTop: 10,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+});

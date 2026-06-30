@@ -7,6 +7,7 @@ import { DashboardResponse } from "./types";
 type TripGroupMapProps = {
   currentUserId: string;
   members: DashboardResponse["members"];
+  variant?: "card" | "full";
 };
 
 type LocatedMember = DashboardResponse["members"][number] & {
@@ -185,7 +186,11 @@ function buildAndroidMapHtml(
 </html>`;
 }
 
-export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
+export function TripGroupMap({
+  currentUserId,
+  members,
+  variant = "card",
+}: TripGroupMapProps) {
   const mapRef = useRef<MapView | null>(null);
   const locatedMembers = useMemo(
     () =>
@@ -250,7 +255,7 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
 
   if (sortedMembers.length === 0) {
     return (
-      <View style={styles.emptyState}>
+      <View style={[styles.emptyState, variant === "full" ? styles.emptyStateFull : null]}>
         <Text style={styles.emptyTitle}>Todavia no hay ubicaciones para mostrar</Text>
         <Text style={styles.emptyBody}>
           Cuando el grupo empiece a compartir GPS, aca vas a ver el mapa real del
@@ -277,8 +282,8 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
     );
 
     return (
-      <View style={styles.wrapper}>
-        <View style={styles.mapFrame}>
+      <View style={[styles.wrapper, variant === "full" ? styles.wrapperFull : null]}>
+        <View style={[styles.mapFrame, variant === "full" ? styles.mapFrameFull : null]}>
           <WebView
             androidLayerType="hardware"
             domStorageEnabled
@@ -289,26 +294,25 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
             source={{ html: androidMapHtml }}
             style={StyleSheet.absoluteFill}
           />
+        </View>
 
-          <View style={styles.topBadgeRow}>
-            <Text style={styles.topBadge}>Mapa compartido del convoy</Text>
-            <Text style={styles.topBadge}>{driverCount} conductores visibles</Text>
+        {variant === "card" ? (
+          <View style={styles.legendRow}>
+            <Text style={styles.legendText}>Mapa compartido del convoy</Text>
+            <Text style={styles.legendText}>{driverCount} conductores visibles</Text>
+            <Text style={styles.legendText}>Naranja: tu equipo</Text>
+            <Text style={styles.legendText}>Verde: online</Text>
+            <Text style={styles.legendText}>Ambar: demorado</Text>
+            <Text style={styles.legendText}>Rojo: offline</Text>
           </View>
-        </View>
-
-        <View style={styles.legendRow}>
-          <Text style={styles.legendText}>Naranja: tu equipo</Text>
-          <Text style={styles.legendText}>Verde: online</Text>
-          <Text style={styles.legendText}>Ambar: demorado</Text>
-          <Text style={styles.legendText}>Rojo: offline</Text>
-        </View>
+        ) : null}
       </View>
     );
   }
 
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.mapFrame}>
+    <View style={[styles.wrapper, variant === "full" ? styles.wrapperFull : null]}>
+      <View style={[styles.mapFrame, variant === "full" ? styles.mapFrameFull : null]}>
         <MapView
           ref={mapRef}
           initialRegion={initialRegion}
@@ -356,19 +360,18 @@ export function TripGroupMap({ currentUserId, members }: TripGroupMapProps) {
             );
           })}
         </MapView>
+      </View>
 
-        <View style={styles.topBadgeRow}>
-          <Text style={styles.topBadge}>Mapa compartido del convoy</Text>
-          <Text style={styles.topBadge}>{driverCount} conductores visibles</Text>
+      {variant === "card" ? (
+        <View style={styles.legendRow}>
+          <Text style={styles.legendText}>Mapa compartido del convoy</Text>
+          <Text style={styles.legendText}>{driverCount} conductores visibles</Text>
+          <Text style={styles.legendText}>Naranja: tu equipo</Text>
+          <Text style={styles.legendText}>Verde: online</Text>
+          <Text style={styles.legendText}>Ambar: demorado</Text>
+          <Text style={styles.legendText}>Rojo: offline</Text>
         </View>
-      </View>
-
-      <View style={styles.legendRow}>
-        <Text style={styles.legendText}>Naranja: tu equipo</Text>
-        <Text style={styles.legendText}>Verde: online</Text>
-        <Text style={styles.legendText}>Ambar: demorado</Text>
-        <Text style={styles.legendText}>Rojo: offline</Text>
-      </View>
+      ) : null}
     </View>
   );
 }
@@ -377,30 +380,20 @@ const styles = StyleSheet.create({
   wrapper: {
     gap: 12,
   },
+  wrapperFull: {
+    flex: 1,
+    gap: 0,
+  },
   mapFrame: {
     height: 300,
     borderRadius: 22,
     overflow: "hidden",
     backgroundColor: "#dce8e8",
   },
-  topBadgeRow: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  topBadge: {
-    overflow: "hidden",
-    borderRadius: 999,
-    backgroundColor: "rgba(11,58,71,0.82)",
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "700",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  mapFrameFull: {
+    flex: 1,
+    height: undefined,
+    borderRadius: 0,
   },
   legendRow: {
     flexDirection: "row",
@@ -416,6 +409,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#f4f8f8",
     padding: 18,
+  },
+  emptyStateFull: {
+    flex: 1,
+    borderRadius: 0,
+    justifyContent: "center",
+    paddingHorizontal: 24,
   },
   emptyTitle: {
     color: "#12343f",

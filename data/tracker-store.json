@@ -1,4 +1,22 @@
 {
+  "monitorAccounts": [
+    {
+      "id": "mon_default",
+      "name": "Viaje GPS Demo",
+      "username": "viaje-gps",
+      "password": "viaje123",
+      "createdAt": "2026-05-18T16:50:00.000Z",
+      "authUserId": null
+    },
+    {
+      "id": "mon_5cinh7o7",
+      "name": "martin",
+      "username": "martinmonitor",
+      "password": "scrypt:5c711172d22be4cf72b3ff67d5e61112:ca323a6264f42a8c0874db56078628e4fcd05d6f5a717964eb27903b39ae098ad25f9330d10442de06c6c14a545f54416210508cffd58a6ef7cfe19e7de903e8",
+      "createdAt": "2026-06-30T13:56:19.110Z",
+      "authUserId": null
+    }
+  ],
   "users": [
     {
       "id": "usr_lucia",
@@ -40,7 +58,9 @@
       "startsAt": "2026-05-18T17:30:00.000Z",
       "origin": "San Salvador de Jujuy",
       "destination": "Humahuaca",
-      "checkpoint": "Termas de Reyes"
+      "checkpoint": "Termas de Reyes",
+      "alternativeCheckpoints": [],
+      "ownerMonitorId": "mon_default"
     }
   ],
   "tripMembers": [
@@ -459,6 +479,7 @@
       "source": "mobile"
     }
   ],
+  "emergencyAlerts": [],
   "sessions": [
     {
       "token": "sess_xn6zk38a",
